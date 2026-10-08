@@ -104,6 +104,10 @@ button.primary:hover { filter: brightness(1.1); }
 #tooltip .k { color: var(--muted); }
 #tooltip .v { color: var(--value); font-variant-numeric: tabular-nums; }
 #tooltip .gv { color: var(--grad); font-variant-numeric: tabular-nums; }
+#tooltip table.stats { border-collapse: collapse; margin-top: 4px; }
+#tooltip table.stats td { padding: 1px 0 1px 10px; text-align: right; }
+#tooltip table.stats td:first-child { padding-left: 0; text-align: left; }
+body.zen #tooltip { background: rgba(12, 14, 19, 0.82); backdrop-filter: blur(3px); max-width: 420px; }
 
 /* the structure floats over the network, see-through */
 #right { position: absolute; top: 46px; right: 10px; width: clamp(200px, 25vw, 340px); display: flex; flex-direction: column;
@@ -173,7 +177,7 @@ footer button { min-width: 38px; }
 /* zen: the network alone, forward and backward on a loop */
 #zen-count, #zen-progress { display: none; }
 body.zen { grid-template-rows: 1fr; }
-body.zen header, body.zen footer, body.zen #walk, body.zen #right, body.zen #legend, body.zen #tooltip,
+body.zen header, body.zen footer, body.zen #walk, body.zen #right, body.zen #legend,
 body.zen #net-buttons > :not(#zen) { display: none !important; }
 body.zen main { grid-template-columns: 1fr !important; grid-template-rows: 1fr !important; }
 body.zen #net-buttons { opacity: 0.25; transition: opacity 0.3s; }

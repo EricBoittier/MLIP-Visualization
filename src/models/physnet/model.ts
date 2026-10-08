@@ -7,6 +7,7 @@
 // and ZBL repulsion at very short range.
 import type { Backend } from '../../engine/backend';
 import { type Graph, Tensor } from '../../engine/tensor';
+import { e, eV, power, times, Å } from '../../engine/units';
 import type { Tensors } from '../../common/safetensors';
 import { isPeriodic, neighborList, type System } from '../../common/structure';
 import { atomRows, type Forward, type Model, range, type RowSpace } from '../types';
@@ -86,7 +87,7 @@ export class PhysNet implements Model {
     const one = k([1], [1], 'one');
     const Zidx = ix(sys.numbers, c.max_atomic_number + 1, 'atom');
 
-    const positions = k(sys.positions.flat(), [N, 3], 'positions', 'atom');
+    const positions = k(sys.positions.flat(), [N, 3], 'positions', 'atom').withUnit(Å);
     positions.requiresGrad = !!opts.forces;
     const v = g.scope('geometry', () => g.add(
       g.sub(g.gather(positions, ix(nl.neighbor, N, 'pair', 'atom'), 'r_j'), g.gather(positions, ix(nl.center, N, 'pair', 'atom'), 'r_i')),
@@ -98,7 +99,7 @@ export class PhysNet implements Model {
       const d = g.rowNorm(vm);
       const theta = g.unary('acos', g.add(g.scale(g.unary('exp', g.unary('neg', d)), 2), k([-1], [1], 'minus_one')));
       const cheb = g.unary('cos', g.mul(g.repeatCols(theta, K, 'angles'), k(range(K), [1, K], 'orders')), 0, 0);
-      const x2 = g.scale(g.unary('square', d), 1 / (c.cutoff * c.cutoff));
+      const x2 = g.scale(g.unary('square', d), 1 / (c.cutoff * c.cutoff), 'scale', power(Å, -2));
       const cut = g.unary('exp', g.add(g.unary('neg', g.unary('pow', g.add(g.unary('neg', x2), one), -1)), one), 0, 0);
       return g.mul(cheb, cut, 'basis');
     });
@@ -129,7 +130,7 @@ export class PhysNet implements Model {
 
     const head = (name: string, biasName: string, use: boolean) => {
       const a = lin(lin(x, `Dense_${dense++}.0+`, false), `Dense_${dense++}`, false);
-      const out = g.sumRows(a, 'per_atom');
+      const out = g.sumRows(a, 'per_atom').withUnit(name === 'charges' ? e : eV);
       return use ? g.add(out, g.gather(this.p(biasName), Zidx, `${biasName}`)) : out;
     };
     let perAtom = g.scope('energy_head', () => head('energy', 'energy_bias', c.use_energy_bias));
@@ -154,11 +155,11 @@ export class PhysNet implements Model {
           const r1 = g.div(s, g.unary('sqrt', g.add(r2, one)), 'short_range');
           const rl = g.div(g.add(g.unary('neg', s), one), g.add(dist, k([1e-6], [1], 'eps')), 'long_range');
           let rr = g.add(r1, rl, '1/r');
-          if (c.electrostatics_damping_sigma > 0) rr = g.mul(rr, g.unary('erf', g.scale(dist, 1 / c.electrostatics_damping_sigma)), 'damped');
-          const eshift = g.add(g.scale(dist, 1 / c.switch_end ** 2), k([1e-6 / c.switch_end ** 2 - 2 / c.switch_end], [1], 'shift'), 'eshift');
+          if (c.electrostatics_damping_sigma > 0) rr = g.mul(rr, g.unary('erf', g.scale(dist, 1 / c.electrostatics_damping_sigma, 'scale', power(Å, -1))), 'damped');
+          const eshift = g.add(g.scale(dist, 1 / c.switch_end ** 2, 'scale', power(Å, -2)), k([1e-6 / c.switch_end ** 2 - 2 / c.switch_end], [1], 'shift'), 'eshift');
           const qi = g.unary('clamp', g.gather(q, ix(Array.from(es, (p) => nl.center[p]), N, 'es_pair', 'atom'), 'q_i'), -10, 10);
           const qj = g.unary('clamp', g.gather(q, ix(Array.from(es, (p) => nl.neighbor[p]), N, 'es_pair', 'atom'), 'q_j'), -10, 10);
-          const pair = g.mul(g.scale(g.mul(qi, qj), COULOMB_PAIR), g.mul(g.add(rr, eshift), off), 'pair_energy');
+          const pair = g.mul(g.scale(g.mul(qi, qj), COULOMB_PAIR, 'scale', times(times(eV, Å), power(e, -2))), g.mul(g.add(rr, eshift), off), 'pair_energy');
           return g.segmentSum(pair, ix(Array.from(es, (p) => nl.center[p]), N, 'es_pair', 'atom'), 'per_atom');
         });
         perAtom = g.add(perAtom, E, 'with_electrostatics');
@@ -174,13 +175,13 @@ export class PhysNet implements Model {
         const a = Zi.map((z, n) => aCoef / (z ** aExp + Zj[n] ** aExp));
         const vz = g.gather(v, ix(zb, P, 'zbl_pair', 'pair'), 'pairs');
         const r = g.unary('clamp', g.rowNorm(vz), 1e-8, Infinity);
-        const xr = g.div(r, k(a, [zb.length], 'screening_length', 'zbl_pair'));
+        const xr = g.div(r, k(a, [zb.length], 'screening_length', 'zbl_pair').withUnit(Å));
         const phi = g.linear(g.unary('exp', g.mul(g.repeatCols(xr, 4, 'x'), k(phiE.map((e) => -e), [1, 4], 'exponents'))),
                              k(phiC.map((q) => q / norm), [1, 4], 'coefficients'), undefined, 'screening');
-        const t = g.unary('clamp', g.scale(g.add(g.unary('neg', r), k([c.zbl_cutoff], [1], 'cutoff')), 1 / (c.zbl_cutoff - c.zbl_cuton)), 0, 1);
+        const t = g.unary('clamp', g.scale(g.add(g.unary('neg', r), k([c.zbl_cutoff], [1], 'cutoff')), 1 / (c.zbl_cutoff - c.zbl_cuton), 'scale', power(Å, -1)), 0, 1);
         const sw = g.mul(g.mul(g.unary('square', t), t), g.add(g.mul(g.add(g.scale(t, 6), k([-15], [1], 'c')), t), k([10], [1], 'c')), 'switch');
-        const coul = g.div(k(Zi.map((z, n) => 0.5 * COULOMB * z * Zj[n]), [zb.length], 'ZiZj'), r, 'coulomb');
-        const pair = g.mul(g.mul(coul, g.sumRows(phi)), sw, 'pair_energy');
+        const coul = g.div(k(Zi.map((z, n) => 0.5 * COULOMB * z * Zj[n]), [zb.length], 'ZiZj').withUnit(times(eV, Å)), r, 'coulomb');
+        const pair = g.mul(g.mul(coul, g.sumRows(phi)), sw, 'pair_energy').withUnit(eV); // phi: a pure number
         return g.segmentSum(pair, ix(Array.from(zb, (p) => nl.center[p]), N, 'zbl_pair', 'atom'), 'per_atom');
       });
       perAtom = g.add(perAtom, E, 'with_repulsion');

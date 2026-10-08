@@ -1,6 +1,12 @@
 // Tape-based reverse-mode autograd over a Backend. Every op records the module
 // scope it ran in, so the visualiser can show each forward and backward step.
 import type { Backend, Binary, Buf, CutoffKind, NormKind, SeqLayout, Unary } from './backend';
+import { type MaybeUnit, type Rule, type Unit, rules, times } from './units';
+
+const UNARY_UNITS: Partial<Record<Unary, (a: number) => Rule>> = {
+  square: () => rules.pow(2), sqrt: () => rules.pow(0.5), pow: (a) => rules.pow(a),
+  neg: () => rules.keep, clamp: () => rules.keep, acos: () => rules.acos, switch: () => rules.step,
+};
 
 /** What the rows of a tensor index: lets the visualiser pick one atom's rows. */
 export type RowKind = string;
@@ -11,6 +17,8 @@ export class Tensor {
   grad: Buf | null = null;
   node: Node | null = null;
   kind?: RowKind;
+  /** physical unit (see units.ts): undefined for an untagged constant, null for none */
+  unit?: Unit | null;
   constructor(
     readonly shape: number[],
     public buf: Buf,
@@ -18,6 +26,7 @@ export class Tensor {
     public name = '',
   ) {}
   get size() { return this.shape.reduce((a, b) => a * b, 1); }
+  withUnit(u: MaybeUnit) { this.unit = u; return this; }
   get rows() { return this.shape.length > 1 ? this.shape.slice(0, -1).reduce((a, b) => a * b, 1) : this.shape[0] ?? 1; }
   get cols() { return this.shape.length > 1 ? this.shape[this.shape.length - 1] : 1; }
 }
@@ -91,9 +100,10 @@ export class Graph {
   own(b: Buf) { this.owned.push(b); return b; }
 
   private record(op: string, inputs: Tensor[], out: Tensor, backward: () => void,
-                 aux?: Node['aux']): Tensor {
+                 aux?: Node['aux'], unit: Rule = rules.none): Tensor {
     const node: Node = { id: out.id, op, scope: this.scopeName, inputs, out, aux };
     out.kind ??= inputs.find((t) => t.kind && t.rows === out.rows)?.kind;
+    if (out.unit === undefined) out.unit = unit(inputs.map((t) => t.unit));
     out.requiresGrad = this.recording && inputs.some((t) => t.requiresGrad);
     if (out.requiresGrad) { node.backward = backward; out.node = node; }
     this.tape.push(node);
@@ -127,7 +137,7 @@ export class Graph {
     this.be.unary(op, x.buf, y.buf, x.size, a, b);
     return this.record(op, [x], y, () => {
       this.be.unaryGrad(op, x.buf, y.buf, y.grad!, this.g(x)!, x.size, a, b);
-    });
+    }, undefined, UNARY_UNITS[op]?.(a) ?? rules.fn);
   }
   silu(x: Tensor) { return this.unary('silu', x); }
   sigmoid(x: Tensor) { return this.unary('sigmoid', x); }
@@ -141,17 +151,19 @@ export class Graph {
     this.be.binary(op, a.buf, b.buf, y.buf, a.size, mode, a.cols);
     return this.record(name, [a, b], y, () => {
       this.be.binaryGrad(op, a.buf, b.buf, y.grad!, this.g(a), this.g(b), a.size, mode, a.cols);
-    });
+    }, undefined, op === 'mul' ? rules.mul : op === 'div' ? rules.div : rules.keep);
   }
   add(a: Tensor, b: Tensor, name = 'add') { return this.binary('add', a, b, name); }
   sub(a: Tensor, b: Tensor, name = 'sub') { return this.binary('sub', a, b, name); }
   mul(a: Tensor, b: Tensor, name = 'mul') { return this.binary('mul', a, b, name); }
   div(a: Tensor, b: Tensor, name = 'div') { return this.binary('div', a, b, name); }
 
-  scale(x: Tensor, alpha: number, name = 'scale'): Tensor {
+  /** `per`: the unit of alpha, when it has one (by default a pure number) */
+  scale(x: Tensor, alpha: number, name = 'scale', per?: Unit): Tensor {
     const y = this.tensor(x.shape);
     this.be.scale(x.buf, y.buf, alpha, x.size, false);
-    return this.record(name, [x], y, () => this.be.scale(y.grad!, this.g(x)!, alpha, x.size, true));
+    return this.record(name, [x], y, () => this.be.scale(y.grad!, this.g(x)!, alpha, x.size, true), undefined,
+                       per ? ([u]) => (u ? times(u, per) : null) : rules.keep);
   }
 
   /** Rows of x picked by idx (rows with idx < 0 are zero). */
@@ -161,7 +173,7 @@ export class Graph {
     this.be.gather(x.buf, ix.idx, y.buf, ix.n, d, false);
     return this.record(name, [x], y, () => {
       this.be.segment(y.grad!, ix.inv.off, ix.inv.src, this.g(x)!, ix.nSrc, d, true);
-    });
+    }, undefined, rules.keep);
   }
 
   /** Sum the rows of x into segments: y[s] = sum_{i: seg[i] = s} x[i]. */
@@ -171,7 +183,7 @@ export class Graph {
     this.be.segment(x.buf, seg.inv.off, seg.inv.src, y.buf, seg.nSrc, d, false);
     return this.record(name, [x], y, () => {
       this.be.gather(y.grad!, seg.idx, this.g(x)!, seg.n, d, true);
-    });
+    }, undefined, rules.keep);
   }
 
   concatCols(xs: Tensor[], name = 'concat'): Tensor {
@@ -186,7 +198,7 @@ export class Graph {
         if (g) this.be.copyCols(y.grad!, w, o2, g, t.cols, 0, rows, t.cols, true);
         o2 += t.cols;
       }
-    });
+    }, undefined, rules.keep);
   }
 
   sliceCols(x: Tensor, start: number, width: number, name = 'slice'): Tensor {
@@ -194,7 +206,7 @@ export class Graph {
     this.be.copyCols(x.buf, x.cols, start, y.buf, width, 0, rows, width, false);
     return this.record(name, [x], y, () => {
       this.be.copyCols(y.grad!, width, 0, this.g(x)!, x.cols, start, rows, width, true);
-    });
+    }, undefined, rules.keep);
   }
 
   /** Stack rows: [a; b]. */
@@ -207,7 +219,7 @@ export class Graph {
       const ga = this.g(a), gb = this.g(b);
       if (ga) this.be.scale(y.grad!, ga, 1, a.size, true);
       if (gb) this.be.copyCols(y.grad!, y.size, a.size, gb, b.size, 0, 1, b.size, true);
-    });
+    }, undefined, rules.keep);
   }
 
   /** Same data, new shape (a copy, so it shows up as its own block). */
@@ -215,13 +227,13 @@ export class Graph {
     const y = this.tensor(shape);
     y.kind = kind;
     this.be.scale(x.buf, y.buf, 1, x.size, false);
-    return this.record(name, [x], y, () => this.be.scale(y.grad!, this.g(x)!, 1, x.size, true));
+    return this.record(name, [x], y, () => this.be.scale(y.grad!, this.g(x)!, 1, x.size, true), undefined, rules.keep);
   }
 
   /** Repeat a column vector [R] (or [R, 1]) across k columns: [R, k]. */
   repeatCols(x: Tensor, k: number, name = 'repeat'): Tensor {
     return this.linear(x.shape.length > 1 ? x : this.reshape(x, [x.size, 1], x.kind, 'column'),
-                       this.constant(new Float32Array(k).fill(1), [k, 1], 'ones'), undefined, name);
+                       this.constant(new Float32Array(k).fill(1), [k, 1], 'ones'), undefined, name).withUnit(x.unit);
   }
 
   sumRows(x: Tensor, name = 'sum'): Tensor {
@@ -231,7 +243,7 @@ export class Graph {
       // dx[r, c] += dy[r]: a gather of dy rows broadcast over columns
       const ones = this.own(this.be.upload(new Float32Array(x.cols).fill(1)));
       this.be.matmul(y.grad!, ones, this.g(x)!, x.rows, x.cols, 1, false, false, true);
-    });
+    }, undefined, rules.keep);
   }
 
   sumAll(x: Tensor, name = 'sum'): Tensor {
@@ -240,7 +252,7 @@ export class Graph {
     return this.record(name, [x], y, () => {
       const ones = this.own(this.be.upload(new Float32Array(x.size).fill(1)));
       this.be.matmul(ones, y.grad!, this.g(x)!, x.size, 1, 1, false, false, true);
-    });
+    }, undefined, rules.keep);
   }
 
   norm(kind: NormKind, x: Tensor, w: Tensor, b: Tensor | null, eps: number): Tensor {
@@ -267,7 +279,7 @@ export class Graph {
     this.be.cutoff(kind, d.buf, rc.buf, y.buf, d.size, width);
     return this.record(`cutoff_${kind}`, [d, rc], y, () => {
       this.be.cutoffGrad(kind, d.buf, rc.buf, y.grad!, this.g(d), this.g(rc), d.size, width);
-    });
+    }, undefined, rules.step);
   }
 
   /** Tabulated functions of x [E]: y[e, c] = spline through V[c, :] and slopes D[c, :] at x = k h. */
@@ -281,7 +293,7 @@ export class Graph {
   sph(u: Tensor, lmax: number, name = 'spherical_harmonics'): Tensor {
     const n = u.rows, y = this.tensor([n, (lmax + 1) ** 2]);
     this.be.sph(u.buf, y.buf, n, lmax);
-    return this.record(name, [u], y, () => this.be.sphGrad(u.buf, y.grad!, this.g(u)!, n, lmax));
+    return this.record(name, [u], y, () => this.be.sphGrad(u.buf, y.grad!, this.g(u)!, n, lmax), undefined, rules.fn);
   }
 
   /** SOAP power spectrum of B blocks of A density rows each (see Backend.power). */
@@ -296,7 +308,7 @@ export class Graph {
     const [R, C] = [x.rows, x.cols], y = this.tensor([C, R]);
     const I = this.own(this.be.upload(Float32Array.from({ length: R * R }, (_, k) => (k % (R + 1) === 0 ? 1 : 0))));
     this.be.matmul(x.buf, I, y.buf, C, R, R, true, false, false);
-    return this.record(name, [x], y, () => this.be.matmul(I, y.grad!, this.g(x)!, R, C, R, false, true, true));
+    return this.record(name, [x], y, () => this.be.matmul(I, y.grad!, this.g(x)!, R, C, R, false, true, true), undefined, rules.keep);
   }
 
   /** A result computed elsewhere (e.g. a linear solve on the host), recorded so it can be shown;

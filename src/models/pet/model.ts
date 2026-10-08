@@ -3,6 +3,7 @@
 // is its own token followed by its kept edges.
 import type { Backend, SeqLayout } from '../../engine/backend';
 import { Graph, Index, type RowKind, Tensor } from '../../engine/tensor';
+import { eV, times, Å } from '../../engine/units';
 import type { Checkpoint, Hypers, ModelMeta } from './checkpoint';
 import { type System, volume } from '../../common/structure';
 import { type AttentionSpec, atomRows, edgeRows, type Forward, type Model, range, type RowSpace } from '../types';
@@ -99,7 +100,7 @@ export class PET implements Model {
     const ix = (a: Int32Array, nSrc: number, out?: RowKind, src?: RowKind) => g.index(a, nSrc, { out, src });
     const atomsSpecies = ix(P.species, this.meta.atomic_types.length, 'atom');
     const nbSpecies = ix(Int32Array.from(P.neighbor, (j) => P.species[j]), this.meta.atomic_types.length, 'edge');
-    const positions = g.constant(Float32Array.from(sys.positions.flat()), [N, 3], 'positions', 'atom');
+    const positions = g.constant(Float32Array.from(sys.positions.flat()), [N, 3], 'positions', 'atom').withUnit(Å);
     positions.requiresGrad = !!opts.forces;
 
     const { edgeVectors, kept, pair } = g.scope('geometry', () => {
@@ -121,7 +122,7 @@ export class PET implements Model {
         const residual = g.add(counts, g.constant(base, [N], 'baseline', 'atom'));
         const step = g.div(residual, g.constant(Float32Array.from(A.dn), [N], 'slope', 'atom'));
         const a = g.sub(g.constant(Float32Array.from(A.r), [N], 'root', 'atom'), step);
-        return g.unary('clamp', a, h.cutoff / 16, h.cutoff);
+        return g.unary('clamp', a, h.cutoff / 16, h.cutoff).withUnit(Å); // one Newton step on the cutoff radius
       });
       const keep = ix(P.keep, Eraw, 'edge', 'raw_edge');
       const pairC = g.scale(g.add(g.gather(atomic, ix(P.center, N, 'edge', 'atom'), 'cutoff_i'), g.gather(atomic, ix(P.neighbor, N, 'edge', 'atom'), 'cutoff_j')), 0.5);
@@ -260,7 +261,7 @@ export class PET implements Model {
     if (opts.nc && this.hasNC) {
       const scale = this.meta.non_conservative!.non_conservative_force.scale;
       ncForces = g.scope('nc_forces', () => {
-        const F = g.mul(readout('non_conservative_force'), g.constant(Float32Array.from(P.species, (s) => scale[s]), [N], 'scale', 'atom'));
+        const F = g.mul(readout('non_conservative_force'), g.constant(Float32Array.from(P.species, (s) => scale[s]), [N], 'scale', 'atom')).withUnit(times(eV, Å, -1));
         // remove the net force (as metatomic does): F_i - mean_j F_j
         const all = g.index(new Int32Array(N), 1, { src: 'atom' });
         const mean = g.scale(g.segmentSum(F, all, 'net_force'), 1 / N);
@@ -269,7 +270,7 @@ export class PET implements Model {
     }
     const comp = Float32Array.from(P.species, (s) => this.meta.composition_energies[s]);
     const perAtom = g.scope('energy', () =>
-      g.add(g.scale(g.sumRows(perAtomNet), this.meta.energy_scale), g.constant(comp, [N], 'composition', 'atom')));
+      g.add(g.scale(g.sumRows(perAtomNet), this.meta.energy_scale).withUnit(eV), g.constant(comp, [N], 'composition', 'atom')));
     const energy = g.scope('energy', () => g.sumAll(perAtom, 'total_energy'));
     const graph = { center: P.center, neighbor: P.neighbor, label: 'neighbour',
                     shift: Float32Array.from({ length: 3 * E }, (_, k) => P.raw.shiftVec[3 * P.keep[(k / 3) | 0] + (k % 3)]) };

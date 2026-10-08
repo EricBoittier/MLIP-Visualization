@@ -111,6 +111,7 @@ function text(str: string, size: number, color: string, bold = false): Text {
 }
 
 const opLabel = (op: OpInfo) => op.op;
+const OP_FONT = 1.1, LABEL_EM = 0.6 * OP_FONT; // Inter runs at most ~0.58 em per character
 
 /** Unit box geometry scaled per block, so re-layout is just a transform. */
 const BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -335,7 +336,7 @@ export class NetworkView {
       if (a) for (let h = 0; h < a.heads; h++) block('head', i, h, this.headThumb(trace, i, h), null);
       const shape = trace.shapes[i];
       this.opText[i] = `${opLabel(op)}  [${shape.join('×')}]`;
-      this.opLabels.push(label(this.opText[i], 1.1, '#aab2c2', false, 90));
+      this.opLabels.push(label(this.opText[i], OP_FONT, '#aab2c2', false, 90));
     });
     for (const m of walk(this.root)) {
       if (m.depth === 0) continue;
@@ -380,7 +381,9 @@ export class NetworkView {
     if (!this.root || !this.trace) return;
     const aspect = Math.max(this.camera.aspect, 0.6);
     this.layoutAspect = this.camera.aspect;
-    const lay = (this.lay = layout(this.root, this.ops, this.trace, this.zen || this.weightsOnly ? new Set() : this.collapsed, aspect, this.zen, this.weightsOnly));
+    const labelWidth = (i: number, weights: string[]) => LABEL_EM * (this.weightsOnly ? this.paramLabel(weights) : this.opText[i]).length;
+    const lay = (this.lay = layout(this.root, this.ops, this.trace, this.zen || this.weightsOnly ? new Set() : this.collapsed, aspect, this.zen,
+                                   this.weightsOnly, labelWidth));
     const place = (o: THREE.Object3D, r: Rect, z: number, d = 1) => this.moveTo(o, r.x + r.w / 2, -(r.y + r.h / 2), z, r.w, r.h, d, now);
     for (const b of this.blocks) {
       const c = lay.cards[b.op];

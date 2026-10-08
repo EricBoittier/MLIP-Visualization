@@ -1,4 +1,5 @@
 // Messages between the UI and the engine worker.
+import type { Unit } from '../engine/units';
 import type { Thumb } from '../engine/backend';
 import type { System } from '../common/structure';
 import type { GraphSpec, ModelKind, RowSpace } from '../models/types';
@@ -12,6 +13,7 @@ export interface OpInfo {
   inputs: number[]; // tape indices of producing ops (-1: constant)
   params: string[]; // weight names read by this op
   grad: boolean; // takes part in the backward pass
+  unit?: Unit | null; // physical unit of the values (see engine/units.ts)
 }
 
 export interface AttentionMap {

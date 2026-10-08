@@ -9,6 +9,7 @@
 // where K_NM sums the atomic kernels of each training structure.
 import type { Backend } from '../../engine/backend';
 import { Graph, type Tensor } from '../../engine/tensor';
+import { eV, Å } from '../../engine/units';
 import { neighborList, type System } from '../../common/structure';
 import { atomRows, edgeRows, type Forward, type Model, range, type RowSpace } from '../types';
 import { defaultSoap, radialTables, type SoapHypers } from './soap';
@@ -193,7 +194,7 @@ export class KRR implements Model {
     this.V ??= new Graph(this.be).tensor([this.tables.C, this.tables.K], this.be.upload(this.tables.V), 'radial_integrals');
     this.D ??= new Graph(this.be).tensor([this.tables.C, this.tables.K], this.be.upload(this.tables.D), 'radial_slopes');
 
-    const positions = c(sys.positions.flat(), [N, 3], 'positions', 'atom');
+    const positions = c(sys.positions.flat(), [N, 3], 'positions', 'atom').withUnit(Å);
     positions.requiresGrad = forces;
     const { v, d } = g.scope('geometry', () => {
       const v = g.add(g.sub(g.gather(positions, ix(nl.neighbor, N, 'pair', 'atom'), 'r_j'), g.gather(positions, ix(nl.center, N, 'pair', 'atom'), 'r_i')),
@@ -257,7 +258,7 @@ export class KRR implements Model {
     const d = g.scope('soap', () => this.describe(g, sys, !!opts.forces));
     const k = g.scope('kernel', () => g.mul(this.pow(g, g.linear(d.p, Xs, undefined, 'overlap')), mask(sys.numbers), 'kernel'));
     const perAtom = g.scope('regression', () => {
-      const eps = g.sumRows(g.linear(k, alpha, undefined, 'weighted_sum'));
+      const eps = g.sumRows(g.linear(k, alpha, undefined, 'weighted_sum')).withUnit(eV);
       return g.add(eps, c(sys.numbers.map((z) => this.baseline.get(z) ?? 0), [N], 'baseline', 'atom'), 'atomic_energy');
     });
     const energy = g.scope('energy', () => g.sumAll(perAtom, 'total_energy'));

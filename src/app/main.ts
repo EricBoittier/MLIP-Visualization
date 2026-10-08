@@ -5,7 +5,9 @@ import type { ModelKind } from '../models/types';
 import { type ModelUI, NN_TERMS } from '../models/ui';
 import { UIS } from '../models/uis';
 import { MoleculeView } from '../viz/molecule';
-import { Article, buildSteps, epilogue, type Step } from '../viz/article';
+import { Article, buildSteps, epilogue, fmt, type Step } from '../viz/article';
+import type { Thumb } from '../engine/backend';
+import { eV, fmtUnit, times, type Unit } from '../engine/units';
 import { Diagram } from '../viz/diagram';
 import { ancestors, MOD_COLOR, walk } from '../viz/modules';
 import { type Hit, NetworkView } from '../viz/network';
@@ -161,19 +163,44 @@ function rowLabel(op: number, row: number) {
   return `${what} ${row + 1} of atom ${label(t.owner!)}`;
 }
 
+/** ∂E/∂x is in eV per unit of x. */
+const gradUnit = (u?: Unit | null) => (u ? fmtUnit(times(eV, u, -1)) : '');
+const withUnit = (x: number, u: string) => `<span class="v">${x.toPrecision(4)}</span>${u ? ` <span class="k">${u}</span>` : ''}`;
+/** Zen's hover card: what the matrix is, and its statistics (over the full tensor, not the thumbnail). */
+function summary(h: Hit): string {
+  const row = (name: string, t: Pick<Thumb, 'mean' | 'std' | 'min' | 'max'>, u: string, cls = 'v') =>
+    `<tr><td class="k">${name}</td>${[t.mean, t.std, t.min, t.max].map((x) => `<td class="${cls}">${fmt(x, 3)}</td>`).join('')}<td class="k">${u}</td></tr>`;
+  const table = (rows: string[]) => `<table class="stats"><tr class="k"><td></td><td>mean</td><td>std</td><td>min</td><td>max</td><td></td></tr>${rows.join('')}</table>`;
+  if (h.kind === 'op') {
+    const op = ops[h.index], v = pass!.trace.values[h.index]!, g = pass!.trace.grads[h.index], u = fmtUnit(op.unit);
+    return `<b>${opTitle(h.index)}</b> <span class="k">[${pass!.trace.shapes[h.index].join('×')}]${u ? ` · in ${u}` : ''}</span><br>
+      <span class="k">${op.scope || 'input'}</span>${table([row('value', v, u), ...(g ? [row('∂E/∂', g, gradUnit(op.unit), 'gv')] : [])])}`;
+  }
+  if (h.kind === 'weight') {
+    const name = ops[h.index].params[h.sub], p = pass!.trace.params![name];
+    return `<b>${name}</b> <span class="k">[${(pass!.trace.paramShapes?.[name] ?? [p.value.rows, p.value.cols]).join('×')}] · weights</span>
+      ${table([row('value', p.value, ''), ...(p.grad ? [row('∂E/∂', p.grad, '', 'gv')] : [])])}`;
+  }
+  const a = pass!.trace.attention.find((x) => x.op === h.index)!, w = a.probs.subarray(h.sub * a.n * a.n, (h.sub + 1) * a.n * a.n);
+  const mean = w.reduce((s, x) => s + x, 0) / w.length, std = Math.sqrt(w.reduce((s, x) => s + (x - mean) ** 2, 0) / w.length);
+  return `<b>attention, head ${h.sub + 1}</b> <span class="k">[${a.n}×${a.n}] · around ${label(a.atoms[0])}</span>
+    ${table([row('weight', { mean, std, min: Math.min(...w), max: Math.max(...w) }, '')])}`;
+}
+
 net.onHover = (h) => {
   hover = h;
   const tip = $('tooltip');
   if (!h || !pass) { tip.hidden = true; net.highlightRow(-1, -1); drawGraph(lastActive, timeline.state().dir); return; }
   let html = '';
-  if (h.kind === 'op') {
+  if (zen) html = summary(h);
+  else if (h.kind === 'op') {
     const op = ops[h.index], shape = pass.trace.shapes[h.index], v = pass.trace.values[h.index]!;
     const C = shape.length > 1 ? shape[shape.length - 1] : 1;
     const c0 = Math.floor((h.col * C) / v.cols), c1 = Math.max(c0 + 1, Math.floor(((h.col + 1) * C) / v.cols));
     html = `<b>${opTitle(h.index)}</b> <span class="k">[${shape.join('×')}]</span><br>
       <span class="k">${op.scope || 'input'}</span><br>
       ${rowLabel(h.index, h.row)} · ${c1 - c0 > 1 ? `features ${c0}–${c1 - 1} (mean)` : `feature ${c0}`}<br>
-      value <span class="v">${h.value.toPrecision(4)}</span>${h.grad !== undefined ? ` · ∂E/∂ <span class="gv">${h.grad.toPrecision(4)}</span>` : ''}`;
+      value ${withUnit(h.value, fmtUnit(op.unit))}${h.grad !== undefined ? ` · ∂E/∂ <span class="gv">${h.grad.toPrecision(4)}</span>${gradUnit(op.unit) ? ` <span class="k">${gradUnit(op.unit)}</span>` : ''}` : ''}`;
     net.highlightRow(h.index, h.row);
   } else if (h.kind === 'weight') {
     const name = ops[h.index].params[h.sub], p = pass.trace.params![name].value;
@@ -189,8 +216,9 @@ net.onHover = (h) => {
 };
 $('net').addEventListener('pointermove', (e) => {
   const r = $('net').getBoundingClientRect(), tip = $('tooltip');
-  tip.style.left = `${Math.min(e.clientX - r.left + 14, r.width - 340)}px`;
-  tip.style.top = `${e.clientY - r.top + 14}px`;
+  tip.style.left = `${Math.max(4, Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 8))}px`;
+  const y = e.clientY - r.top; // below the cursor, or above it when there is no room
+  tip.style.top = `${y + 14 + tip.offsetHeight > r.height ? Math.max(4, y - 10 - tip.offsetHeight) : y + 14}px`;
 });
 net.onClick = (h) => {
   if (!h || h.kind !== 'op') return;

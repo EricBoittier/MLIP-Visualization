@@ -30,9 +30,10 @@ const PAD = 2.5;
 const gap = (depth: number) => (depth === 0 ? 12 : 3);
 
 /** `compact`: zen mode, no text rows and the blocks packed close together.
- *  `weightsOnly`: just the parameters, at their own size, grouped by module. */
+ *  `weightsOnly`: just the parameters, at their own size, grouped by module.
+ *  `labelWidth`: how wide an op's label is (given the weights it shows), so no label runs into the next op. */
 export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<string>, aspect: number, compact = false,
-                       weightsOnly = false): Layout {
+                       weightsOnly = false, labelWidth: (op: number, weights: string[]) => number = () => 0): Layout {
   const LBL = compact ? 0 : LABEL, PADc = compact ? 0.8 : PAD, SEP = compact ? 0.7 : 1.5;
   const gapOf = (depth: number) => (compact ? (depth === 0 ? 3 : 1) : gap(depth));
   const band = (title: number) => (compact ? 0 : title * 1.8);
@@ -54,7 +55,8 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
         return [{ name, rect: r }];
       });
       const h = weights.length ? LBL + Math.max(...weights.map((w) => w.rect.h)) : 0;
-      return { op: i, rect: { x: 0, y: 0, w: weights.length ? Math.max(x - 3 * SEP, 8) : 0, h }, block: { x: 0, y: LBL, w: 0, h: 0 },
+      const w = weights.length ? Math.max(x - 3 * SEP, 8, labelWidth(i, weights.map((q) => q.name))) : 0;
+      return { op: i, rect: { x: 0, y: 0, w, h }, block: { x: 0, y: LBL, w: 0, h: 0 },
                weights, heads: [], visible: weights.length > 0 };
     }
     const t = trace.values[i]!;
@@ -74,7 +76,7 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
     const heads = a ? Array.from({ length: a.heads }, (_, hd) => ({ head: hd, rect: { x: x + 2 * SEP + hd * (a.n + SEP), y: LBL, w: a.n, h: a.n } })) : [];
     if (a) x += 2 * SEP + a.heads * (a.n + SEP);
     const h = LBL + Math.max(bh, ...weights.map((w) => w.rect.h), ...heads.map((q) => q.rect.h));
-    return { op: i, rect: { x: 0, y: 0, w: Math.max(x, compact ? 1 : 8), h }, block, weights, heads, visible: true };
+    return { op: i, rect: { x: 0, y: 0, w: compact ? Math.max(x, 1) : Math.max(x, 8, labelWidth(i, [])), h }, block, weights, heads, visible: true };
   };
 
   type Sized = { w: number; h: number; place: (x: number, y: number, visible: boolean) => void };
@@ -98,7 +100,7 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
     if (isCollapsed) {
       frame.title = titleSize(m.depth) * 1.5;
       top = band(frame.title);
-      const w = Math.max(24, m.title.length * frame.title * 0.62 + 2 * PAD), h = top + 5;
+      const w = Math.max(24, (m.title.length + 3) * frame.title * 0.62 + 2 * PAD), h = top + 5; // the title, then '  +'
       return {
         w, h, place: (x, y, v) => {
           frame.rect = { x, y, w, h };

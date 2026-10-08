@@ -5,6 +5,7 @@
 // TorchANI's pyaev implementation.
 import type { Backend } from '../../engine/backend';
 import { type Graph, Tensor } from '../../engine/tensor';
+import { eV, Ha, power, times, Å } from '../../engine/units';
 import type { Tensors } from '../../common/safetensors';
 import { neighborList, type System } from '../../common/structure';
 import { atomRows, edgeRows, type Forward, type Model, range, type RowSpace } from '../types';
@@ -52,7 +53,7 @@ export class ANI implements Model {
     const c = (data: number[] | Float32Array, shape: number[], name: string, kind?: string) =>
       g.constant(Float32Array.from(data), shape, name, kind);
 
-    const positions = g.constant(Float32Array.from(sys.positions.flat()), [N, 3], 'positions', 'atom');
+    const positions = g.constant(Float32Array.from(sys.positions.flat()), [N, 3], 'positions', 'atom').withUnit(Å);
     positions.requiresGrad = !!opts.forces;
 
     // ---- pairs within the radial cutoff
@@ -67,7 +68,7 @@ export class ANI implements Model {
     const radial = g.scope('radial', () => {
       const fc = g.cutoff('cosine', d, c(new Array(P).fill(R.cutoff), [P], 'cutoff', 'pair'), R.cutoff);
       const t = g.sub(g.repeatCols(d, nR, 'distances'), c(R.shifts, [1, nR], 'shifts'));
-      const terms = g.mul(g.scale(g.unary('exp', g.scale(g.unary('square', t), -R.eta)), 0.25), fc);
+      const terms = g.mul(g.scale(g.unary('exp', g.scale(g.unary('square', t), -R.eta, 'scale', power(Å, -2))), 0.25), fc);
       const slots = ix(Array.from(nl.center, (i, p) => i * S + spec[nl.neighbor[p]]), N * S, 'pair', 'atom_species');
       return g.reshape(g.segmentSum(terms, slots, 'sum_per_element'), [N, S * nR], 'atom', 'radial_aev');
     });
@@ -90,7 +91,7 @@ export class ANI implements Model {
       const ang = g.scale(g.unary('pow', g.unary('clamp', g.scale(g.add(dth, c([1], [1], 'one')), 0.5), 0, Infinity), A.zeta), 2);
       // radial part: exp(-eta ((r_ij + r_ik) / 2 - mu)^2)
       const mean = g.scale(g.add(dj, dk), 0.5);
-      const rad = g.unary('exp', g.scale(g.unary('square', g.sub(g.repeatCols(mean, nA, 'mean_distances'), c(A.shifts, [1, nA], 'shifts'))), -A.eta));
+      const rad = g.unary('exp', g.scale(g.unary('square', g.sub(g.repeatCols(mean, nA, 'mean_distances'), c(A.shifts, [1, nA], 'shifts'))), -A.eta, 'scale', power(Å, -2)));
       // outer product: feature a * nZ + s
       const eR = new Float32Array(nA * nZ * nA), eZ = new Float32Array(nA * nZ * nZ);
       for (let a = 0; a < nA; a++) for (let s = 0; s < nZ; s++) { eR[(a * nZ + s) * nA + a] = 1; eZ[(a * nZ + s) * nZ + s] = 1; }
@@ -126,7 +127,7 @@ export class ANI implements Model {
               const L = m.layers[sym].length - 1;
               let h = x;
               for (let l = 0; l < L; l++) {
-                h = g.linear(h, this.params.get(`member${k}.${sym}.${l}.weight`)!, this.params.get(`member${k}.${sym}.${l}.bias`)!, l < L - 1 ? `layer${l}` : 'output');
+                h = g.linear(h, this.params.get(`member${k}.${sym}.${l}.weight`)!, this.params.get(`member${k}.${sym}.${l}.bias`)!, l < L - 1 ? `layer${l}` : 'output').withUnit(l < L - 1 ? null : Ha);
                 if (l < L - 1) h = g.unary('celu', h, m.activation.alpha);
               }
               return h;
@@ -142,7 +143,7 @@ export class ANI implements Model {
 
     const perAtom = g.scope('energy', () => g.scale(
       g.add(g.sumRows(atomic!), c(Array.from(spec, (s) => m.self_energies[s]), [N], 'self_energies', 'atom')),
-      m.hartree_to_ev, 'to_eV'));
+      m.hartree_to_ev, 'to_eV', times(eV, Ha, -1)));
     const energy = g.scope('energy', () => g.sumAll(perAtom, 'total_energy'));
     return { energy, perAtom, positions, virialVectors: v, rows,
              graph: { center: nl.center, neighbor: nl.neighbor, shift: Float32Array.from(nl.shiftVec), label: 'symmetry-function pair' } };

@@ -41,7 +41,7 @@ export class Diagram {
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" fill="${c}" fill-opacity="0.16" stroke="${c}" class="b"/>
         <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#f99e29" class="pf"/>
         <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#a855f7" class="pb"/>
-        <text x="${x + 7}" y="${y + 13}" class="t" fill="${c}">${esc(w < 90 ? m.short : m.title)}</text>
+        <text x="${x + 7}" y="${y + 13}" class="t" fill="${c}" data-short="${esc(m.short)}">${esc(w < 90 ? m.short : m.title)}</text>
         ${sub && w >= 70 ? `<text x="${x + 7}" y="${y + 24}" class="s">${esc(sub)}</text>` : ''}${toggle}</g>`);
     };
 
@@ -57,12 +57,12 @@ export class Diagram {
       let h = TITLE;
       const body: (() => void)[] = [];
       if (horizontal) {
-        const cw = (inner - HGAP * (kids.length - 1)) / kids.length;
+        const cw = (inner - HGAP * (kids.length - 1)) / kids.length, y0 = y + h;
         kids.forEach((q, i) => {
           const cx = x + PAD + i * (cw + HGAP);
           body.push(() => {
-            leaf(q, cx, y + h, cw);
-            if (i) arrowH(cx - HGAP, cx, y + h + LEAF / 2);
+            leaf(q, cx, y0, cw);
+            if (i) arrowH(cx - HGAP, cx, y0 + LEAF / 2);
           });
         });
         h += LEAF + PAD;
@@ -84,7 +84,7 @@ export class Diagram {
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="${c}" fill-opacity="0.06" stroke="${c}" stroke-opacity="0.7" class="b"/>
         <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#f99e29" class="pf"/>
         <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#a855f7" class="pb"/>
-        <text x="${x + 7}" y="${y + 13}" class="t" fill="${c}">${esc(m.title)}</text>
+        <text x="${x + 7}" y="${y + 13}" class="t" fill="${c}" data-short="${esc(m.short)}">${esc(m.title)}</text>
         <text x="${x + w - 9}" y="${y + 12}" class="tg" data-t="${k}">−</text></g>`);
       body.forEach((f) => f());
       return h;
@@ -113,6 +113,7 @@ export class Diagram {
       <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7b8496"/></marker>
       <marker id="ahb" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#a855f7"/></marker>
     </defs>${parts.join('')}`;
+    this.fitText();
     this.boxes = refs.map((r, k) => {
       const g = this.svg.querySelector(`g.box[data-k="${k}"]`)!;
       return { ...r, rect: g.querySelector('rect.b')!, fwd: g.querySelector('rect.pf')!, bwd: g.querySelector('rect.pb')! };
@@ -123,6 +124,19 @@ export class Diagram {
       const g = (e.target as Element).closest('g.box');
       if (g) this.onNavigate?.(refs[+g.getAttribute('data-k')!].mod);
     };
+  }
+
+  /** Text that would run out of its box, or under its ± toggle, falls back to the short title, then is cut with an ellipsis. */
+  private fitText() {
+    for (const g of this.svg.querySelectorAll('g.box')) {
+      const r = g.querySelector('rect.b')!, right = +r.getAttribute('x')! + +r.getAttribute('width')! - (g.querySelector('.tg') ? 17 : 5);
+      for (const t of g.querySelectorAll<SVGTextElement>('text.t, text.s')) {
+        const room = right - +t.getAttribute('x')!, short = t.dataset.short;
+        if (!(t.getComputedTextLength() > room)) continue;
+        if (short) t.textContent = short;
+        for (let s = t.textContent ?? ''; t.getComputedTextLength() > room && s.length > 1;) t.textContent = (s = s.slice(0, -1)).trimEnd() + '…';
+      }
+    }
   }
 
   /** Progress of every box, and which one holds the active op. */

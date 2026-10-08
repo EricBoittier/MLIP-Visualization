@@ -46,6 +46,8 @@ file of hyperparameters per model.
   [pet-kokkos](https://github.com/EricBoittier/pet-kokkos)'s `convert_pet.py`. Cite the PET and PET-MAD papers when you use them.
 - **MACE-MP-0**: [mace-foundations/mace-mp-0](https://huggingface.co/mace-foundations/mace-mp-0) (MIT), Batatia et al.,
   *A foundation model for atomistic materials chemistry* (2023), converted with `scripts/convert_mace.py`.
+- **LOREM demo**: a random initialization of [metatrain](https://github.com/lab-cosmo/metatrain)'s experimental LOREM
+  (Bigi et al., arXiv:2507.19382), exported with `scripts/convert_lorem.py`. Not a trained potential.
 - **ANI-2x**: [TorchANI](https://github.com/aiqm/torchani) (MIT), Devereux et al., *J. Chem. Theory Comput.* 16, 4192 (2020),
   converted with `scripts/convert_ani.py`.
 - **PhysNet (acetone)**: a small invariant PhysNet ([mmml](https://github.com/EricBoittier/mmml) `physnetjax`, MIT,
@@ -59,6 +61,7 @@ Each model keeps the licence of its source:
 - `pet-*`: BSD-3-Clause, from lab-cosmo/upet.
 - `ani-2x.*`: MIT, from TorchANI (Copyright 2018- Xiang Gao and other ANI developers).
 - `mace-*`: MIT, from mace-foundations/mace-mp-0 (MACE-MP-0, Batatia et al.).
+- `lorem-*`: a random initialization of metatrain's experimental LOREM (Bigi et al., arXiv:2507.19382). Not a trained potential.
 - `physnet-*`: {physnet_licence}, trained with mmml (MIT, Copyright 2025 Eric Boittier).
 """
 
@@ -67,6 +70,7 @@ SOURCES = {
     "ani": ("TorchANI models.ANI2x(), converted with convert_ani.py", "MIT"),
     "physnet": ("mmml physnetjax, trained with train_physnet_demo.py", None),
     "mace": ("mace-foundations/mace-mp-0, converted with convert_mace.py", "MIT"),
+    "lorem": ("metatrain experimental LOREM, random initialization from convert_lorem.py", "MIT"),
 }
 
 

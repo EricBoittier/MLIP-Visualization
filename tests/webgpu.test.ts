@@ -7,7 +7,7 @@ import { CpuBackend } from '../src/engine/cpu';
 import { Graph, type Tensor } from '../src/engine/tensor';
 import { WebGPUBackend } from '../src/engine/webgpu';
 import { evaluate } from '../src/models/pet/model';
-import { loadANI, loadMACE, loadModel } from './util';
+import { loadANI, loadLOREM, loadMACE, loadModel } from './util';
 
 Object.assign(globalThis, globals);
 let gpu: WebGPUBackend;
@@ -78,6 +78,14 @@ describe('WebGPU kernels', () => {
     const rows = g.linear(g.concatCols([Y, S]), g.constant(rand(25 * 30, 33), [25, 30]));
     const P = g.power(g.reshape(g.sliceCols(rows, 0, 25), [7, 25]), 1, 7, 4);
     return { out: g.add(g.transpose(g.transpose(P)), g.scale(P, 0.5)), inputs: [r, v] };
+  }));
+  it('couple / matmul', () => compare((g) => {
+    const N = 3, n1 = 4, n2 = 3, n3 = 5, F = 2;
+    const left = T(g, [N * n1, F], 51), right = T(g, [N * n2, F], 52), K = T(g, [n1 * n2 * n3, F], 53);
+    const a = T(g, [5, 4], 54), b = T(g, [4, 6], 55), c = T(g, [6, 4], 56), d = T(g, [7, 4], 57), e = T(g, [7, 3], 58);
+    const coupled = g.sumAll(g.couple(left, right, K, n1, n2, n3));
+    const prod = g.add(g.sumAll(g.mm(a, b)), g.add(g.sumAll(g.mm(a, c, false, true)), g.sumAll(g.mm(d, e, true))));
+    return { out: g.add(coupled, prod), inputs: [left, right, K, a, b, c, d, e] };
   }));
   it('sin / row mix', () => compare((g) => {
     const B = 5, d1 = 3, d3 = 5, C = 7;
@@ -154,6 +162,27 @@ describe('WebGPU ANI-2x vs CPU', () => {
       }
       expect(Math.abs(res[0][0] - res[1][0])).toBeLessThan(2e-6 * Math.abs(ref.energy));
       expect(maxRel(res[1][1], res[0][1])).toBeLessThan(1e-4);
+    }
+  });
+});
+
+describe('WebGPU LOREM vs metatrain', () => {
+  if (!existsSync('public/models/lorem-demo.json')) return;
+  it('lorem-demo', async () => {
+    const model = loadLOREM('lorem-demo', gpu);
+    for (const c of ['water', 'ethanol', 'silicon']) {
+      const ref = JSON.parse(readFileSync(`tests/reference/lorem-demo_${c}.json`, 'utf8'));
+      const g = new Graph(gpu), t0 = performance.now();
+      const out = model.forward(g, { numbers: ref.atomic_numbers, positions: ref.positions, cell: ref.cell, pbc: ref.pbc }, { forces: true });
+      g.backward(out.energy);
+      const E = (await gpu.read(out.energy.buf))[0], F = await gpu.read(out.positions.grad!);
+      const ms = performance.now() - t0;
+      g.release();
+      expect(gpuErrors.splice(0)).toEqual([]);
+      const dE = Math.abs(E - ref.energy), dF = Math.max(...Array.from(F, (x, i) => Math.abs(-x - ref.forces.flat()[i])));
+      console.log(`gpu lorem ${c.padEnd(8)} dE=${dE.toExponential(2)} dF=${dF.toExponential(2)} ${ms.toFixed(0)} ms`);
+      expect(dE).toBeLessThan(1e-5 * Math.max(1, Math.abs(ref.energy)));
+      expect(dF).toBeLessThan(1e-4 * Math.max(1, ...ref.forces.flat().map(Math.abs)));
     }
   });
 });

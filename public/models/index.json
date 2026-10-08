@@ -21,6 +21,13 @@
   "weights": "mace-mp-0b2-small.safetensors"
  },
  {
+  "name": "lorem-demo",
+  "kind": "lorem",
+  "label": "LOREM demo",
+  "meta": "lorem-demo.json",
+  "weights": "lorem-demo.safetensors"
+ },
+ {
   "name": "ani-2x",
   "kind": "ani",
   "label": "ANI-2x",

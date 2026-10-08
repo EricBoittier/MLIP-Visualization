@@ -9,7 +9,7 @@
 // (only ℓ = 0 would carry a bias). Each `*.kernel` is that module's learned tensor weight
 // already multiplied by its Clebsch–Gordan coefficients.
 import type { Backend } from '../../engine/backend';
-import { type Graph, type Index, type Tensor } from '../../engine/tensor';
+import { type Graph, type Index, Tensor } from '../../engine/tensor';
 import { eV, Å } from '../../engine/units';
 import type { Tensors } from '../../common/safetensors';
 import { SYMBOLS } from '../../common/elements';
@@ -190,9 +190,10 @@ export class LOREM implements Model {
       return g.mul(coeff, g.reshape(harmonics, [E * M, 1], 'edge.sph'), 'Y_edges');
     };
 
-    const positions = k(sys.positions.flat(), [N, 3], 'positions', 'atom').withUnit(Å);
-    positions.requiresGrad = !!opts.forces;
+    let positions!: Tensor;
     const { v, r } = g.scope('geometry', () => {
+      positions = k(sys.positions.flat(), [N, 3], 'positions', 'atom').withUnit(Å);
+      positions.requiresGrad = !!opts.forces;
       const v = g.add(g.sub(g.gather(positions, ix(neigh, N, 'edge', 'atom'), 'r_j'),
                             g.gather(positions, ix(center, N, 'edge', 'atom'), 'r_i')),
                       k(nl.shiftVec, [E, 3], 'shift', 'edge'), 'edges');
@@ -232,7 +233,7 @@ export class LOREM implements Model {
       const pre = `sr.message_passing.${step}`;
       const out = g.scope('message', () => {
         const edges = mixRadial(nodes, radial, `${pre}.radial_coefficients`);
-        let scalar = update(nodes, g.segmentSum(lin(edges, `${pre}.edge_dense`), ix(center, N, 'atom', 'edge'), 'messages'), `${pre}.update_edges`);
+        const scalar = update(nodes, g.segmentSum(lin(edges, `${pre}.edge_dense`), ix(center, N, 'atom', 'edge'), 'messages'), `${pre}.update_edges`);
         let sph = spherical;
         if (m.equivariant_message_passing) {
           const basis = sphericalEdges(edges, sh, `${pre}.coeff_dense`);
@@ -245,20 +246,23 @@ export class LOREM implements Model {
           sph = g.couple(dx, dm, this.p(`${pre}.message_pass.combine_tensor.kernel`), M, M, M, 'combine');
           sph.kind = 'sph';
           const updated = update(scalar, degreeNorms(sph, N, L, M, s), `${pre}.update_norms`);
-          return { scalar: updated, sph, energy: energyMlp(updated, `${pre}.energy_mlp`) };
+          return { scalar: updated, sph, energy: g.add(sr, energyMlp(updated, `${pre}.energy_mlp`), 'add_sr') };
         }
-        return { scalar, sph, energy: energyMlp(scalar, `${pre}.energy_mlp`) };
+        return { scalar, sph, energy: g.add(sr, energyMlp(scalar, `${pre}.energy_mlp`), 'add_sr') };
       });
       nodes = out.scalar;
       spherical = out.sph;
-      sr = g.add(sr, out.energy, 'add_sr');
+      sr = out.energy;
     }
 
+    let charge!: Tensor;
     const charges = g.scope('charges', () => {
       const scalar = lin(g.silu(lin(nodes, 'lr.scalar_charge_mlp.0')), 'lr.scalar_charge_mlp.2');
       const projected = degreeLinear(spherical, 'lr.spherical_charge_dense.dense', N, L, M, 2);
       const coupled = g.couple(g.sliceCols(projected, 0, 1), g.sliceCols(projected, 1, 1), this.p('lr.spherical_charge_dense.kernel'), M, M, Mr, 'spherical_charges');
-      return g.concatCols([scalar, g.reshape(coupled, [N, Mr], 'atom', 'charge')], 'charges');
+      const q = g.concatCols([scalar, g.reshape(coupled, [N, Mr], 'atom', 'charge')], 'charges');
+      charge = g.reshape(g.sliceCols(q, 0, 1), [N], 'atom', 'charge');
+      return q;
     });
 
     const potential = g.scope('potential', () => {
@@ -320,7 +324,6 @@ export class LOREM implements Model {
       sph: { label: 'atom, m component', owner: Int32Array.from({ length: N * M }, (_, i) => (i / M) | 0), atom: Int32Array.from({ length: N * M }, (_, i) => (i / M) | 0), all: true },
       'edge.sph': { label: 'edge, m component', owner: Int32Array.from({ length: E * M }, (_, i) => center[(i / M) | 0] ?? 0), edge: Int32Array.from({ length: E * M }, (_, i) => (i / M) | 0) },
     };
-    const charge = g.reshape(g.sliceCols(charges, 0, 1), [N], 'atom', 'charge');
     const graph = { center, neighbor: neigh, shift: Float32Array.from(nl.shiftVec), label: 'neighbour' };
     return { energy, perAtom, positions, rows, graph, extras: { charge }, internals: { sr, lr, charges } };
   }

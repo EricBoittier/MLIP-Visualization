@@ -11,7 +11,7 @@ import type { Model, ModelKind } from './types';
 export interface ModelContext {
   /** Models already loaded, by id (KRR labels its training set with one of them). */
   models: Map<string, Model>;
-  progress: (text: string) => void;
+  progress: (text: string, fraction?: number) => void;
 }
 
 export async function createModel(be: Backend, kind: ModelKind, meta: any, weights: ArrayBuffer | null, ctx: ModelContext): Promise<Model> {

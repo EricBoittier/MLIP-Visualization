@@ -70,5 +70,5 @@ export type FromWorker =
   | { type: 'ready'; backend: string; adapter: string }
   | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number; hasNC: boolean; activate: boolean; elements: number[] }
   | { type: 'pass'; pass: Pass }
-  | { type: 'progress'; text: string }
+  | { type: 'progress'; text: string; fraction?: number } // fraction: 0..1 of a model load or fit
   | { type: 'error'; text: string };

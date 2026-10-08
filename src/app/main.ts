@@ -289,6 +289,7 @@ function setWeightsOnly(on: boolean) {
   document.body.classList.toggle('weights-only', on);
   if (on) { timeline.playing = false; net.follow = false; $('follow').classList.remove('on'); }
   net.setWeightsOnly(on);
+  if (!on) { follow(); if (lastActive >= 0) net.focus(lastActive); }
 }
 $('weights-only').onclick = () => setWeightsOnly(!net.weightsOnly);
 
@@ -343,9 +344,67 @@ const scrub = (e: PointerEvent) => {
   timeline.seek(((e.clientX - r.left) / r.width) * timeline.steps.length);
   refresh();
 };
-tl.addEventListener('pointerdown', (e) => { dragging = true; timeline.playing = false; tl.setPointerCapture(e.pointerId); scrub(e); });
+tl.addEventListener('pointerdown', (e) => {
+  dragging = true;
+  timeline.playing = false;
+  tl.setPointerCapture(e.pointerId);
+  follow(); // scrubbing the timeline brings the camera back to the op it lands on
+  lastActive = -2;
+  scrub(e);
+});
 tl.addEventListener('pointermove', (e) => dragging && scrub(e));
 tl.addEventListener('pointerup', () => (dragging = false));
+
+// ------------------------------------------------------------------ loading
+// While a model downloads, builds or (KRR) fits, the network gets an overlay and stops rendering
+// until the new model's first pass is in.
+const loader = {
+  el: $('loading'),
+  waitingForPass: false,
+  show(title: string) {
+    const grid = this.el.querySelector('.loader-grid')!;
+    if (!grid.childElementCount)
+      grid.innerHTML = Array.from({ length: 6 * 16 }, (_, k) => `<i style="--d:${(((k % 16) + Math.floor(k / 16)) * 0.06).toFixed(2)}s"></i>`).join('');
+    (this.el.querySelector('.loader-title') as HTMLElement).textContent = title;
+    this.stage('');
+    this.el.hidden = false;
+    timeline.playing = false;
+    net.paused = true;
+  },
+  /** The current stage; without a fraction the bar is indeterminate. */
+  stage(text: string, fraction?: number) {
+    (this.el.querySelector('.loader-stage') as HTMLElement).textContent = text;
+    const bar = this.el.querySelector('.loader-bar') as HTMLElement;
+    bar.classList.toggle('indeterminate', fraction == null);
+    (bar.firstElementChild as HTMLElement).style.width = fraction == null ? '' : `${Math.round(100 * Math.min(Math.max(fraction, 0), 1))}%`;
+  },
+  hide() {
+    this.waitingForPass = false;
+    this.el.hidden = true;
+    net.paused = false;
+  },
+};
+
+/** Fetch a file, reporting the fraction downloaded when the server says how big it is. */
+async function fetchBytes(url: string, progress: (fraction: number, mb: string) => void): Promise<ArrayBuffer> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  const total = +(r.headers.get('content-length') ?? 0);
+  if (!r.body || !total) return r.arrayBuffer();
+  const reader = r.body.getReader(), chunks: Uint8Array[] = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    progress(got / total, `${(got / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`);
+  }
+  const out = new Uint8Array(got);
+  let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out.buffer;
+}
 
 // ------------------------------------------------------------------ inputs
 const structSel = $<HTMLSelectElement>('structure');
@@ -384,19 +443,32 @@ let active: ModelEntry | null = null;
 
 function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate = true): Promise<void> {
   return (async () => {
-    if (e.kind === 'krr') {
-      // KRR's 'weights' are a fit: the second menu says what to fit it to
-      const t = entries.find((x) => x.name === modelSel.value && x.kind !== 'krr') ?? entries.find((x) => x.kind !== 'krr')!;
-      if (!loaded.has(t.name)) await loadModel(t, undefined, undefined, false);
-      status(`fitting ${e.label ?? e.name} to ${t.label ?? t.name} on this structure…`);
-      meta0 = { kind: 'krr', ...e.params, teacher: t.name, teacherLabel: t.label ?? t.name, system };
-    } else status(`loading ${e.label ?? e.name}…`);
-    const m = meta0 ?? (e.meta ? await (await fetch(stem(e.meta))).json() : {});
-    const w = weights0 ?? (e.weights ? await (await fetch(stem(e.weights))).arrayBuffer() : null);
-    const done = new Promise<void>((r) => waiting.set(e.name, r));
-    if (activate) active = e;
-    send({ type: 'loadModel', id: e.name, kind: e.kind, meta: m, weights: w, label: e.label ?? e.name, activate }, w ? [w] : []);
-    await done;
+    const name = e.label ?? e.name;
+    try {
+      if (e.kind === 'krr') {
+        // KRR's 'weights' are a fit: the second menu says what to fit it to
+        const t = entries.find((x) => x.name === modelSel.value && x.kind !== 'krr') ?? entries.find((x) => x.kind !== 'krr')!;
+        if (activate) loader.show(`Fitting ${name} to ${t.label ?? t.name}`);
+        if (!loaded.has(t.name)) await loadModel(t, undefined, undefined, false);
+        status(`fitting ${name} to ${t.label ?? t.name} on this structure…`);
+        loader.stage('Labelling rattled copies of this structure with the teacher…');
+        meta0 = { kind: 'krr', ...e.params, teacher: t.name, teacherLabel: t.label ?? t.name, system };
+      } else {
+        status(`loading ${name}…`);
+        if (activate) loader.show(`Loading ${name}`);
+      }
+      const m = meta0 ?? (e.meta ? await getJSON(stem(e.meta)) : {});
+      const w = weights0 ?? (e.weights ? await fetchBytes(stem(e.weights), (f, mb) => loader.stage(`Downloading the ${activate ? '' : 'teacher\u2019s '}weights of ${name}: ${mb}`, f)) : null);
+      if (w) loader.stage(activate ? `Building ${name}…` : `Building ${name} (teacher)…`);
+      const done = new Promise<void>((r) => waiting.set(e.name, r));
+      if (activate) active = e;
+      send({ type: 'loadModel', id: e.name, kind: e.kind, meta: m, weights: w, label: name, activate }, w ? [w] : []);
+      await done;
+    } catch (err) {
+      loader.hide();
+      status(`<b>Could not load ${name}:</b> ${(err as Error).message}`);
+      if (!activate) throw err; // a teacher that failed: the fit cannot go on
+    }
   })();
 }
 // Model files come from public/models/ when it has them (local development), otherwise from the
@@ -470,6 +542,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     waiting.get(m.id)?.();
     waiting.delete(m.id);
     if (!m.activate) return;
+    if (!loader.el.hidden) { loader.waitingForPass = true; loader.stage(`Running the first ${UIS[m.kind]?.terms?.forward ?? 'pass'}…`); }
     meta = m.meta;
     hasNC = m.hasNC;
     const u = (ui = UIS[m.kind]!);
@@ -488,7 +561,9 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     $('legend-attn').hidden = !t.attention;
     $('weights-only').textContent = t.weights[0].toUpperCase() + t.weights.slice(1);
     $('weights-only').title = `Show only the ${t.weights} of the model`;
+    // a new model starts in follow mode, whatever view the last one was in
     if (net.weightsOnly) setWeightsOnly(false);
+    follow();
     timeline.seek(0);
     autoplay = true;
     // a model that cannot handle this structure's elements gets the first preset it can
@@ -530,13 +605,16 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     }
     $('energies').innerHTML = parts.join(' · ');
     lastActive = -2;
+    if (loader.waitingForPass) loader.hide();
     if (autoplay) { autoplay = false; timeline.seek(0); continueStep(); }
     refresh(true);
     if (queued) { queued = false; evaluate(); }
   } else if (m.type === 'progress') {
     status(m.text);
+    if (!loader.el.hidden) loader.stage(m.text.replace(/^KRR: /, ''), m.fraction);
   } else if (m.type === 'error') {
     busy = false;
+    loader.hide();
     status(`<b>Error:</b> ${m.text}`);
     console.error(m.text);
   }

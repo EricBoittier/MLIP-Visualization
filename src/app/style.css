@@ -189,3 +189,24 @@ body.zen #zen-progress { display: block; position: absolute; left: 0; right: 0; 
 body.zen #zen-progress i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; }
 body.zen #zen-progress .f { background: var(--value); }
 body.zen #zen-progress .b { background: var(--grad); }
+
+/* loading a model, or fitting one (KRR): an overlay on the network, which stops rendering meanwhile */
+#loading { position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; background: rgba(12, 14, 19, 0.78); backdrop-filter: blur(3px); text-align: center; padding: 16px; }
+#loading[hidden] { display: none; }
+.loader-grid { display: grid; grid-template-columns: repeat(16, 10px); grid-auto-rows: 10px; gap: 2px; margin-bottom: 8px; }
+.loader-grid i { background: #2b303b; border-radius: 1px; animation: loader-cell 1.6s ease-in-out infinite; animation-delay: var(--d); }
+@keyframes loader-cell {
+  0%, 100% { background: #2b303b; }
+  35% { background: var(--value); }
+  60% { background: var(--value-neg); }
+}
+.loader-title { font-size: 16px; font-weight: 600; color: #eef0f4; }
+.loader-stage { font-size: 13px; color: var(--muted); min-height: 1.4em; max-width: 440px; font-variant-numeric: tabular-nums; }
+.loader-bar { width: min(320px, 70%); height: 4px; border-radius: 2px; background: #1f2430; overflow: hidden; }
+.loader-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.25s ease-out; }
+.loader-bar.indeterminate i { width: 30%; animation: loader-slide 1.2s ease-in-out infinite; }
+@keyframes loader-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) {
+  .loader-grid i, .loader-bar.indeterminate i { animation: none; }
+}

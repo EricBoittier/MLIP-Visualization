@@ -147,6 +147,8 @@ export class NetworkView {
   zen = false;
   /** Show only the parameters. */
   weightsOnly = false;
+  /** While a model loads or fits: no playback and no rendering, so the GPU is left to the worker. */
+  paused = false;
   private zenTime = 0;
   private want = new THREE.Vector3();
   private wantDist = 120;
@@ -224,6 +226,7 @@ export class NetworkView {
     const loop = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
+      if (this.paused) { requestAnimationFrame(loop); return; }
       this.onFrame?.(dt);
       this.animate(dt);
       this.controls.update();

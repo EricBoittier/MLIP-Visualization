@@ -68,7 +68,16 @@ let hasNC = false;
 const ctx = () => ({ ops, pass: pass!, meta, ui: ui! });
 const renderArticle = () => pass && steps.length && article.render(steps, ctx(), epilogue(pass, hasNC));
 article.onSeek = (k) => { timeline.seek(stepStart[k]); timeline.stopAt = stepEnd[k]; timeline.playing = true; follow(); refresh(true); };
-const follow = () => { net.follow = true; $('follow').classList.add('on'); };
+const syncView = () => {
+  $('follow').classList.toggle('on', net.follow && net.view === 'follow');
+  $('overview').classList.toggle('on', net.follow && net.view === 'overview');
+};
+/** Hand the camera back to the chosen view: the active op, or the whole network. */
+const follow = () => {
+  net.follow = true;
+  if (net.view === 'overview') net.overview(); else if (lastActive >= 0) net.focus(lastActive);
+  syncView();
+};
 /** Play to the end of the current step (or the next one, at a boundary). */
 function continueStep() {
   if (!steps.length) return;
@@ -83,8 +92,9 @@ const drawDiagram = () => net.root && ui && diagram.build(net.root, (m) => ui!.s
 diagram.onNavigate = (m) => {
   timeline.playing = false;
   timeline.seek(m.first);
+  net.view = 'follow';
   net.focusModule(m.id);
-  $('follow').classList.add('on');
+  syncView();
   refresh(true);
 };
 diagram.onToggle = (m) => net.toggle(m.id);
@@ -109,7 +119,7 @@ function refresh(force = false) {
   }
   if (s.active !== lastActive || force) {
     lastActive = s.active;
-    if (s.active >= 0 && net.follow && !zen) net.focus(s.active);
+    if (s.active >= 0 && net.follow && net.view === 'follow' && !zen) net.focus(s.active);
     drawGraph(s.active, s.dir);
   }
   drawTimeline();
@@ -226,7 +236,7 @@ net.onClick = (h) => {
   const a = t?.atom ?? t?.owner;
   if (a !== undefined && a >= 0 && a !== selected) { selected = a; evaluate(); }
 };
-net.onUserCamera = () => $('follow').classList.remove('on');
+net.onUserCamera = syncView;
 
 net.onFrame = (dt) => {
   if (zen && scrubTo !== null) {
@@ -267,8 +277,10 @@ $('restart').onclick = () => { timeline.seek(0); refresh(true); };
 $('end').onclick = () => { timeline.playing = false; timeline.seek(timeline.steps.length); refresh(true); };
 $('prev').onclick = () => { timeline.playing = false; timeline.seek(Math.ceil(timeline.t) - 1); refresh(); };
 $('next').onclick = () => { timeline.playing = false; timeline.seek(Math.floor(timeline.t) + 1); refresh(); };
-$('follow').onclick = () => { net.follow = !net.follow; $('follow').classList.toggle('on', net.follow); if (net.follow && lastActive >= 0) net.focus(lastActive); };
-$('overview').onclick = () => { net.overview(); $('follow').classList.remove('on'); };
+$('follow').onclick = () => {
+  if (net.follow && net.view === 'follow') { net.follow = false; syncView(); } else { net.view = 'follow'; follow(); }
+};
+$('overview').onclick = () => { net.view = 'overview'; follow(); };
 
 // zen: full screen, no text, the pass on a loop
 let zen = false, zenPause = 0, speedBeforeZen = 6;
@@ -278,7 +290,7 @@ function setZen(on: boolean) {
   document.body.classList.toggle('zen', on);
   $('zen').classList.toggle('on', on);
   net.follow = true;
-  $('follow').classList.add('on');
+  syncView();
   if (on) { speedBeforeZen = timeline.speed; timeline.speed = Math.max(timeline.speed, 24); if (timeline.done) timeline.seek(0); timeline.stopAt = null; timeline.playing = true; }
   else { timeline.speed = speedBeforeZen; }
   net.setZen(on);
@@ -287,9 +299,9 @@ $('zen').onclick = () => setZen(!zen);
 function setWeightsOnly(on: boolean) {
   $('weights-only').classList.toggle('on', on);
   document.body.classList.toggle('weights-only', on);
-  if (on) { timeline.playing = false; net.follow = false; $('follow').classList.remove('on'); }
+  if (on) { timeline.playing = false; net.follow = false; syncView(); }
   net.setWeightsOnly(on);
-  if (!on) { follow(); if (lastActive >= 0) net.focus(lastActive); }
+  if (!on) follow();
 }
 $('weights-only').onclick = () => setWeightsOnly(!net.weightsOnly);
 
@@ -561,8 +573,9 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     $('legend-attn').hidden = !t.attention;
     $('weights-only').textContent = t.weights[0].toUpperCase() + t.weights.slice(1);
     $('weights-only').title = `Show only the ${t.weights} of the model`;
-    // a new model starts in follow mode, whatever view the last one was in
+    // a new model starts in the overview, whatever view the last one was in
     if (net.weightsOnly) setWeightsOnly(false);
+    net.view = 'overview';
     follow();
     timeline.seek(0);
     autoplay = true;

@@ -144,6 +144,8 @@ export class NetworkView {
   describe: Describe = () => null;
   rootTitle = '';
   follow = true;
+  /** What the camera tracks while it follows: the active op, or the whole network. */
+  view: 'follow' | 'overview' = 'overview';
   zen = false;
   /** Show only the parameters. */
   weightsOnly = false;
@@ -421,6 +423,7 @@ export class NetworkView {
     }
     this.buildLinks();
     this.setProgress(this.state.fwd, this.state.bwd, this.state.active, this.state.dir);
+    if (this.follow && this.view === 'overview') this.overview(); // keep the whole network framed as it changes shape
   }
 
   private animate(dt: number) {

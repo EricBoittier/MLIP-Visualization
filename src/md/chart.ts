@@ -87,7 +87,8 @@ export class LineChart {
       g.fillText(fmt(v, yt.step), L - 6, Y(v));
     }
     g.textAlign = 'center'; g.textBaseline = 'top';
-    for (const t of xt.values) if (t <= x1) g.fillText(fmt(t, xt.step), X(t), H - B + 6);
+    const unitW = g.measureText(this.xUnit).width + 14; // keep the last tick clear of the unit
+    for (const t of xt.values) if (t <= x1 && X(t) + g.measureText(fmt(t, xt.step)).width / 2 < W - R - unitW) g.fillText(fmt(t, xt.step), X(t), H - B + 6);
     g.textAlign = 'right';
     g.fillText(this.xUnit, W - R, H - B + 6);
 

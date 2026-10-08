@@ -4,23 +4,28 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MLIP Dynamics</title>
-    <meta name="description" content="Constant-energy (NVE) molecular dynamics with machine-learning interatomic potentials, in your browser." />
+    <meta name="description" content="Molecular dynamics (NVE) and diffusion Monte Carlo with machine-learning interatomic potentials, in your browser." />
   </head>
-  <body class="md">
+  <body class="md mode-md">
     <header>
       <a class="brand" href="./" title="Back to the network visualiser">MLIP<span>viz</span></a>
-      <span class="page-tag">NVE dynamics</span>
+      <nav id="modes" title="What to run">
+        <button data-mode="md" class="on" title="Classical molecular dynamics at constant energy">NVE dynamics</button>
+        <button data-mode="dmc" title="Diffusion Monte Carlo: the quantum vibrational ground state">Diffusion Monte Carlo</button>
+      </nav>
       <label title="The kind of model">Model <select id="kind"></select></label>
       <label title="Which trained weights">Weights <select id="model"></select></label>
       <label>Structure <select id="structure"></select></label>
       <label class="file">Open .xyz…<input id="xyz-file" type="file" accept=".xyz,.extxyz" /></label>
-      <label id="force-mode-wrap" title="How forces are computed">Forces <select id="force-mode">
+      <label class="md-only" id="force-mode-wrap" title="How forces are computed">Forces <select id="force-mode">
         <option value="conservative">conservative (−∂E/∂r)</option>
         <option value="direct">direct (non-conservative)</option></select></label>
-      <label title="Initial temperature: Maxwell–Boltzmann velocities, no net momentum">T₀ <input id="temperature" type="number" value="300" min="0" max="5000" step="50" /> K</label>
-      <label title="Time step (applies immediately)">Δt <input id="dt" type="number" value="0.5" min="0.05" max="5" step="0.05" /> fs</label>
+      <label class="md-only" title="Initial temperature: Maxwell–Boltzmann velocities, no net momentum">T₀ <input id="temperature" type="number" value="300" min="0" max="5000" step="50" /> K</label>
+      <label class="md-only" title="Time step (applies immediately)">Δt <input id="dt" type="number" value="0.5" min="0.05" max="5" step="0.05" /> fs</label>
+      <label class="dmc-only" title="Target number of walkers (all are evaluated in batched passes)">Walkers <input id="walkers" type="number" value="500" min="20" max="20000" step="100" /></label>
+      <label class="dmc-only" title="Imaginary time step, atomic units (applies immediately)">Δτ <input id="dtau" type="number" value="10" min="0.5" max="50" step="1" /> a.u.</label>
       <button id="run" class="on" title="Run or pause (Space)">Pause</button>
-      <button id="restart" title="New velocities at T₀ from the starting structure (R)">Restart</button>
+      <button id="restart" title="Start again from the starting structure (R)">Restart</button>
       <div id="status">starting…</div>
     </header>
     <main>
@@ -34,25 +39,53 @@
         </div>
       </section>
       <aside id="panel">
-        <div id="tiles">
+        <div class="tiles md-only">
           <div class="tile"><small>Temperature</small><b id="t-now">–</b><span id="t-mean"></span></div>
           <div class="tile"><small>Energy drift</small><b id="drift">–</b><span id="drift-max"></span></div>
-          <div class="tile"><small>Speed</small><b id="speed">–</b><span id="ms"></span></div>
+          <div class="tile" title="Simulated nanoseconds per day of wall-clock time at this rate"><small>Speed</small><b id="speed">–</b><span id="ms"></span></div>
+          <div class="tile flops-tile"><small>Compute</small><b id="flops">–</b><span id="flops-detail"></span></div>
         </div>
-        <figure>
+        <div class="tiles dmc-only">
+          <div class="tile" title="Mean of E_ref − V_min over the second half of the run, with a blocking error"><small>Zero-point energy</small><b id="zpe">–</b><span id="zpe-detail"></span></div>
+          <div class="tile"><small>Walkers</small><b id="walkers-now">–</b><span id="walkers-detail"></span></div>
+          <div class="tile" title="Walker energies evaluated per day of wall-clock time at this rate"><small>Throughput</small><b id="samples">–</b><span id="samples-detail"></span></div>
+          <div class="tile flops-tile"><small>Compute</small><b id="dmc-flops">–</b><span id="dmc-flops-detail"></span></div>
+        </div>
+        <figure class="md-only">
           <figcaption>Energy, eV, relative to the total at t = 0</figcaption>
           <div id="energy-chart"></div>
         </figure>
-        <figure>
+        <figure class="md-only">
           <figcaption>Temperature, K</figcaption>
           <div id="temp-chart"></div>
         </figure>
-        <p class="note">
+        <figure class="dmc-only">
+          <figcaption>Reference energy E_ref − V_min, cm⁻¹</figcaption>
+          <div id="eref-chart"></div>
+        </figure>
+        <figure class="dmc-only">
+          <figcaption>Walkers</figcaption>
+          <div id="pop-chart"></div>
+        </figure>
+        <p class="note md-only">
           Velocity Verlet at constant particle number, volume and energy, with forces from the model in the
           browser. A good potential and time step keep the <b>total</b> energy flat while kinetic and potential
           energy trade places. Starting from a relaxed structure, about half the initial kinetic energy flows into
           the potential, so the temperature settles near T₀/2. <b>Direct</b> forces are not the gradient of any
           energy, so the total drifts. Too large a Δt does the same, faster.
+        </p>
+        <p class="note dmc-only">
+          Diffusion Monte Carlo treats the nuclei as quantum particles. The structure is relaxed on the model's
+          surface first. Then walkers, each a copy of the molecule, take random steps sized by ħ²Δτ/m. Each walker
+          is copied or removed with weight exp(−Δτ (V − E<sub>ref</sub>)), and E<sub>ref</sub> is steered to keep the
+          population steady. The population settles into the vibrational ground state, and the mean of
+          E<sub>ref</sub> above the minimum is the <b>zero-point energy</b>. The cloud shows where the walkers are
+          (light atoms spread furthest). Only energies are needed, so every walker is evaluated in batched passes.
+          Walkers that fall far below the minimum have found a <b>hole</b> in the surface and are removed.
+        </p>
+        <p class="note" id="flops-note">
+          FLOPs are estimated from the shapes of the kernels the model runs (a multiply-add counts as 2). The rate
+          includes everything else in a step: the neighbour list, data transfer and the read-back of results.
         </p>
       </aside>
     </main>

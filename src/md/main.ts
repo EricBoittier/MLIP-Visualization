@@ -1,54 +1,101 @@
 import '../app/style.css';
 import './md.css';
-import type { System } from '../common/structure';
+import { isPeriodic, type System } from '../common/structure';
 import { fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from '../app/catalog';
 import { PRESETS } from '../app/presets';
 import { parseXYZ } from '../app/xyz';
+import type { ModelKind } from '../models/types';
 import { UIS } from '../models/uis';
 import { LineChart } from './chart';
-import type { Frame, FromMD, MDForces, ToMD } from './md.worker';
+import { AU_FS, CM, estimate } from './dmc';
+import type { DMCFrame, Flops, Frame, FromMD, MDForces, ToMD } from './md.worker';
 import { TrajectoryView } from './view';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const worker = new Worker(new URL('./md.worker.ts', import.meta.url), { type: 'module' });
 const send = (m: ToMD, t: Transferable[] = []) => worker.postMessage(m, t);
 const status = (html: string) => ($('status').innerHTML = html);
+const params = new URLSearchParams(location.search);
+/** 1.2e9 -> '1.20 G' */
+const si = (x: number) => {
+  const k = Math.min(Math.max(Math.floor(Math.log10(Math.max(x, 1)) / 3), 0), 4);
+  return `${(x / 1000 ** k).toPrecision(3)} ${['', 'k', 'M', 'G', 'T'][k]}`;
+};
+/** Models with production weights and local (cutoff) interactions. PhysNet and LOREM ship demo weights;
+ *  KRR is fitted per structure on the visualiser. */
+const DYNAMICS: ModelKind[] = ['pet', 'mace', 'ani'];
 
 // categorical slots 1-3 of the chart palette, validated on the dark panel
 const BLUE = '#3987e5', ORANGE = '#d95926', AQUA = '#199e70';
 const view = new TrajectoryView($('traj'));
 const energy = new LineChart($('energy-chart'), [{ name: 'Total', color: AQUA }, { name: 'Potential', color: BLUE }, { name: 'Kinetic', color: ORANGE }], 'eV');
 const temp = new LineChart($('temp-chart'), [{ name: 'Temperature', color: BLUE }], 'K');
+const erefChart = new LineChart($('eref-chart'), [{ name: 'E_ref', color: BLUE }], 'cm⁻¹', 'a.u.');
+const popChart = new LineChart($('pop-chart'), [{ name: 'Walkers', color: BLUE }], '', 'a.u.');
 
 // ------------------------------------------------------------------ state
-let system: System = PRESETS.ethanol;
+type Mode = 'md' | 'dmc';
+let mode: Mode = params.get('mode') === 'dmc' ? 'dmc' : 'md';
+let system: System = PRESETS[mode === 'dmc' ? 'water' : 'ethanol'];
 let backend = '', modelLabel = '', elements: number[] = [], hasNC = false;
-let running = true, inflight = false, run = 0;
-let e0 = 0, tSum = 0, nT = 0, worstDrift = 0, steps = 4;
+let running = true, inflight = false, run = 0, steps = 4;
+let e0 = 0, tSum = 0, nT = 0, worstDrift = 0; // NVE
+let eref: number[] = []; // DMC: E_ref - V_min per step, cm^-1
 const num = (id: string, lo: number, hi: number, d: number) => {
   const v = +$<HTMLInputElement>(id).value;
   return Number.isFinite(v) ? Math.min(Math.max(v, lo), hi) : d;
 };
 const T0 = () => num('temperature', 0, 5000, 300), dt = () => num('dt', 0.05, 5, 0.5);
+const walkers = () => Math.round(num('walkers', 20, 20000, 500)), dtau = () => num('dtau', 0.5, 50, 10);
 const forceMode = () => $<HTMLSelectElement>('force-mode').value as MDForces;
+/** Atoms per batched DMC pass: as many as each model handles well (MACE's per-edge tensors are large). */
+const PASS: Partial<Record<ModelKind, number>> = { pet: 4096, ani: 4096, mace: 512 };
+let kind: ModelKind = 'pet';
+const maxAtoms = () => Math.max(64, +(params.get('maxAtoms') ?? 0) || PASS[kind] || 1024);
 
-/** New velocities at T0 from the starting structure. */
+function setMode(m: Mode) {
+  mode = m;
+  document.body.classList.toggle('mode-md', m === 'md');
+  document.body.classList.toggle('mode-dmc', m === 'dmc');
+  document.querySelectorAll<HTMLButtonElement>('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+  const u = new URL(location.href);
+  if (m === 'dmc') u.searchParams.set('mode', 'dmc'); else u.searchParams.delete('mode');
+  history.replaceState(null, '', u); // a shared link opens in this mode
+  restart();
+}
+
+/** Start again from the starting structure: new velocities (NVE) or a fresh population (DMC). */
 function restart() {
   if (!elements.length) return;
   const bad = system.numbers.filter((z) => !elements.includes(z));
   if (bad.length) { status(`<b>${modelLabel} cannot handle this structure</b> (no parameters for Z = ${[...new Set(bad)].join(', ')})`); return; }
+  if (mode === 'dmc' && isPeriodic(system)) { status('<b>DMC here is for isolated molecules:</b> pick one without a unit cell'); run++; return; }
   run++;
   inflight = true;
-  [e0, tSum, nT, worstDrift] = [NaN, 0, 0, 0];
-  energy.clear(); temp.clear();
-  temp.refs = [{ y: T0(), label: 'T₀' }, { y: T0() / 2, label: 'T₀/2' }];
+  steps = 1; // until the first frame says how long a step takes
+  view.atomScale = mode === 'dmc' ? 0.45 : 1;
   view.setSystem(system);
-  send({ type: 'start', run, system, temperature: T0(), dt: dt(), forces: forceMode() });
+  if (mode === 'md') {
+    [e0, tSum, nT, worstDrift] = [NaN, 0, 0, 0];
+    energy.clear(); temp.clear();
+    temp.refs = [{ y: T0(), label: 'T₀' }, { y: T0() / 2, label: 'T₀/2' }];
+    send({ type: 'start', run, system, temperature: T0(), dt: dt(), forces: forceMode() });
+  } else {
+    eref = [];
+    erefChart.clear(); popChart.clear();
+    erefChart.refs = [];
+    popChart.refs = [{ y: walkers(), label: 'target' }];
+    for (const id of ['zpe', 'walkers-now', 'samples', 'dmc-flops']) $(id).textContent = '–';
+    for (const id of ['zpe-detail', 'walkers-detail', 'samples-detail', 'dmc-flops-detail']) $(id).textContent = '';
+    loading.show('Relaxing the structure');
+    loading.stage('DMC measures energies from the minimum of the model’s surface', 0);
+    send({ type: 'startDMC', run, system, walkers: walkers(), dtau: dtau(), maxAtoms: maxAtoms() });
+  }
 }
 function advance() {
   if (!running || inflight || !elements.length) return;
   inflight = true;
-  send({ type: 'advance', run, steps, dt: dt() });
+  send(mode === 'md' ? { type: 'advance', run, steps, dt: dt() } : { type: 'advanceDMC', run, steps, dtau: dtau() });
 }
 function setRunning(on: boolean) {
   running = on;
@@ -57,7 +104,14 @@ function setRunning(on: boolean) {
   advance();
 }
 
-function show(f: Frame) {
+const flopsTile = (b: string, detail: string, f: Flops, ms: number, per = '') => {
+  const total = f.forward + f.backward;
+  $(b).textContent = `${si((total / ms) * 1000)}FLOP/s`;
+  $(detail).textContent = `${si(total)}FLOP per step` + (f.backward ? ` · forward ${si(f.forward)}, backward ${si(f.backward)}` : '') + per +
+    ` · ${((100 * f.matmul) / (total || 1)).toFixed(0)}% matmul`;
+};
+
+function showMD(f: Frame) {
   const N = system.numbers.length, total = f.potential + f.kinetic;
   if (Number.isNaN(e0)) e0 = total;
   view.update(f.positions);
@@ -72,13 +126,47 @@ function show(f: Frame) {
   $('drift').textContent = `${drift >= 0 ? '+' : '−'}${Math.abs(drift).toFixed(2)}`;
   $('drift-max').textContent = `meV/atom · worst ${worstDrift.toFixed(2)}`;
   if (f.step > 0) {
-    $('speed').textContent = `${f.msPerStep.toFixed(1)} ms`;
-    $('ms').textContent = `per step · ${((1000 / f.msPerStep) * dt()).toFixed(0)} fs/s`;
+    // ns per day: dt fs per step, 1000 / ms steps per second, 86400 s per day, 1e6 fs per ns
+    $('speed').textContent = `${((dt() * 86.4) / f.msPerStep).toPrecision(3)} ns/day`;
+    $('ms').textContent = `${f.msPerStep.toFixed(1)} ms per step · ${((1000 / f.msPerStep) * dt()).toFixed(0)} fs/s`;
+    flopsTile('flops', 'flops-detail', f.flops, f.msPerStep);
     // aim for a frame about every 60 ms, whatever the model costs
     steps = Math.min(Math.max(Math.round(60 / f.msPerStep), 1), 50);
   }
   $('clock').textContent = `t = ${f.time >= 1000 ? `${(f.time / 1000).toFixed(2)} ps` : `${f.time.toFixed(1)} fs`} · step ${f.step}`;
   status(`<b>${modelLabel}</b> · ${N} atoms · ${forceMode() === 'direct' && hasNC ? 'direct' : 'conservative'} forces<br>${backend}`);
+}
+
+function showDMC(f: DMCFrame) {
+  if (!f.steps.length) { // relaxed: the population starts here
+    loading.hide();
+    view.update(f.ref);
+  }
+  view.setCloud(f.cloud);
+  f.steps.forEach((s, i) => {
+    const tau = f.tau - (f.steps.length - 1 - i) * dtau();
+    eref.push((s.eref - f.vmin) * CM);
+    erefChart.push(tau, [eref[eref.length - 1]]);
+    popChart.push(tau, [s.n]);
+  });
+  const est = estimate(eref);
+  erefChart.refs = est ? [{ y: est.mean, label: 'ZPE' }] : [];
+  erefChart.draw(); popChart.draw();
+  $('zpe').textContent = est ? `${est.mean.toFixed(0)} ± ${est.err.toFixed(0)} cm⁻¹` : 'equilibrating…';
+  $('zpe-detail').textContent = est ? `${((est.mean / CM) * 1000).toFixed(1)} meV · mean of the last ${eref.length - Math.floor(eref.length / 2)} steps` : `${eref.length} steps so far`;
+  $('walkers-now').textContent = `${f.walkers}`;
+  $('walkers-detail').textContent = `target ${walkers()} · ${f.holes} lost to holes`;
+  if (f.steps.length) {
+    const perDay = (f.samplesPerStep / f.msPerStep) * 1000 * 86400;
+    $('samples').textContent = `${(perDay / 1e9).toPrecision(3)} billion`;
+    const passes = Math.ceil(f.samplesPerStep / Math.max(1, Math.floor(f.passAtoms / system.numbers.length)));
+    $('samples-detail').textContent = `samples/day · ${f.msPerStep.toFixed(0)} ms per step of ${Math.round(f.samplesPerStep)} walkers in ${passes} pass${passes > 1 ? 'es' : ''}`;
+    flopsTile('dmc-flops', 'dmc-flops-detail', f.flops, f.msPerStep, ` · ${si(f.flops.forward / (f.samplesPerStep || 1))}FLOP per walker`);
+    // aim for a frame about every 250 ms
+    steps = Math.min(Math.max(Math.round(250 / f.msPerStep), 1), 20);
+  }
+  $('clock').textContent = `τ = ${f.tau.toFixed(0)} a.u. (${(f.tau * AU_FS).toFixed(1)} fs) · step ${f.step}`;
+  status(`<b>${modelLabel}</b> · ${system.numbers.length} atoms · V<sub>min</sub> = ${f.vmin.toFixed(4)} eV<br>${backend}`);
 }
 
 // ------------------------------------------------------------------ models
@@ -116,7 +204,7 @@ async function loadModel(e: ModelEntry) {
 
 async function listModels() {
   ({ entries, base } = await findModels());
-  entries = entries.filter((m) => m.kind !== 'krr'); // KRR is fitted per structure: it lives on the main page
+  entries = entries.filter((m) => DYNAMICS.includes(m.kind));
   if (!entries.length) { status('<b>No models found</b> locally or on Hugging Face.'); return; }
   const kinds = KIND_ORDER.filter((k) => entries.some((m) => m.kind === k));
   kindSel.innerHTML = kinds.map((k) => `<option value="${k}">${UIS[k]?.typeName ?? UIS[k]?.name ?? k} · ${UIS[k]?.family ?? ''}</option>`).join('');
@@ -124,8 +212,7 @@ async function listModels() {
     modelSel.innerHTML = entries.filter((m) => m.kind === kindSel.value).map((m) => `<option value="${m.name}">${m.label ?? m.name}</option>`).join('');
   };
   const current = () => entries.find((m) => m.name === modelSel.value)!;
-  const q = new URLSearchParams(location.search);
-  const want = entries.find((m) => m.name === q.get('model')) ?? entries.find((m) => m.kind === q.get('kind'));
+  const want = entries.find((m) => m.name === params.get('model')) ?? entries.find((m) => m.kind === params.get('kind'));
   if (want) kindSel.value = want.kind;
   fill();
   if (want) modelSel.value = want.name;
@@ -137,7 +224,7 @@ async function listModels() {
 // ------------------------------------------------------------------ inputs
 const structSel = $<HTMLSelectElement>('structure');
 structSel.innerHTML = Object.entries(PRESETS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('');
-const q0 = new URLSearchParams(location.search).get('structure');
+const q0 = params.get('structure');
 if (q0 && PRESETS[q0]) system = PRESETS[q0];
 structSel.value = Object.keys(PRESETS).find((k) => PRESETS[k] === system)!;
 structSel.onchange = () => { system = PRESETS[structSel.value]; restart(); };
@@ -153,15 +240,18 @@ $<HTMLInputElement>('xyz-file').onchange = async (e) => {
     restart();
   } catch (err) { status(`<b>Could not read ${f.name}:</b> ${(err as Error).message}`); }
 };
-$('force-mode').onchange = restart;
-$('temperature').onchange = restart;
+for (const id of ['force-mode', 'temperature', 'walkers']) $(id).onchange = restart;
 $('restart').onclick = restart;
 $('run').onclick = () => setRunning(!running);
+document.querySelectorAll<HTMLButtonElement>('#modes button').forEach((b) => (b.onclick = () => b.dataset.mode !== mode && setMode(b.dataset.mode as Mode)));
 document.addEventListener('keydown', (e) => {
   if ((e.target as HTMLElement).closest('input, select')) return;
   if (e.key === ' ') { e.preventDefault(); setRunning(!running); }
   if (e.key === 'r' || e.key === 'R') restart();
 });
+document.body.classList.toggle('mode-md', mode === 'md');
+document.body.classList.toggle('mode-dmc', mode === 'dmc');
+document.querySelectorAll<HTMLButtonElement>('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
 
 // ------------------------------------------------------------------ messages
 worker.onmessage = (e: MessageEvent<FromMD>) => {
@@ -173,7 +263,7 @@ worker.onmessage = (e: MessageEvent<FromMD>) => {
   } else if (m.type === 'model') {
     loaded.add(m.id);
     loading.hide();
-    [modelLabel, elements, hasNC] = [m.label, m.elements, m.hasNC];
+    [modelLabel, elements, hasNC, kind] = [m.label, m.elements, m.hasNC, m.kind];
     $('force-mode').querySelector<HTMLOptionElement>('[value=direct]')!.disabled = !hasNC;
     if (!hasNC) $<HTMLSelectElement>('force-mode').value = 'conservative';
     // a structure this model cannot handle gives way to the first preset it can
@@ -183,10 +273,10 @@ worker.onmessage = (e: MessageEvent<FromMD>) => {
       if (k) { system = PRESETS[k]; structSel.value = k; }
     }
     restart();
-  } else if (m.type === 'frame') {
+  } else if (m.type === 'frame' || m.type === 'dmc') {
     if (m.frame.run !== run) return;
     inflight = false;
-    show(m.frame);
+    if (m.type === 'frame') showMD(m.frame); else showDMC(m.frame);
     advance();
   } else if (m.type === 'progress') {
     loading.stage(m.text, m.fraction);
@@ -198,4 +288,4 @@ worker.onmessage = (e: MessageEvent<FromMD>) => {
   }
 };
 
-send({ type: 'init', backend: new URLSearchParams(location.search).get('backend') as any ?? 'auto' });
+send({ type: 'init', backend: params.get('backend') as any ?? 'auto' });

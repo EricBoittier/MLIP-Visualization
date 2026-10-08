@@ -28,11 +28,24 @@ backward), in a Web Worker.
 
 ## Dynamics
 
-`md.html` (the *NVE dynamics* link in the header) runs constant-energy molecular dynamics with any of
-these models, except KRR. It uses velocity Verlet with Maxwell–Boltzmann starting velocities and no net
-momentum. It plots kinetic, potential and total energy and the temperature as the run goes, and shows the
-moving structure. It can also use a model's direct force head, which is not the gradient of an energy,
-so you can watch the total energy drift. `?model=<name>&structure=<preset>` picks the starting point.
+`md.html` (the *MD & DMC* link in the header) simulates with the models that have production weights and
+local interactions: PET, MACE and ANI-2x. PhysNet and LOREM ship demo weights, and KRR is fitted per
+structure, so they stay on the visualiser. `?mode=dmc&model=<name>&structure=<preset>` picks the starting point.
+
+- **NVE dynamics**: velocity Verlet from Maxwell–Boltzmann velocities with no net momentum. It plots kinetic,
+  potential and total energy and the temperature. It can also use a model's direct force head, which is not
+  the gradient of an energy, so you can watch the total energy drift.
+- **Diffusion Monte Carlo**: the vibrational ground state of an isolated molecule. The structure is relaxed
+  (FIRE) first, then an unguided DMC population is propagated (Anderson, discrete branching). The page
+  reports the zero-point energy as the mean of E_ref − V_min over the second half of the run, with a blocking
+  error, and draws the walker cloud aligned onto the minimum. It needs only energies, so every walker is
+  evaluated in a few large batched passes. Copies of the molecule are laid out further apart than any
+  model's cutoff, and each copy's energy is the sum of its atoms' energies. The pass size is 4096 atoms for PET and ANI-2x and 512 for
+  MACE. It halves automatically if the GPU refuses a buffer, and `?maxAtoms=` overrides it. Walkers far below the minimum have found holes in the surface and are removed and counted.
+
+Both report the FLOPs per step, estimated from the shapes of the kernels the model runs
+(`src/engine/flops.ts`; a multiply-add counts as 2), the rate they run at, and ns/day (MD) or billion
+samples/day (DMC).
 
 ## Running
 

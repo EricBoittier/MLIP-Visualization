@@ -13,7 +13,8 @@ export type Unary =
   | 'pow' // x^a (x > 0)
   | 'celu' // max(0, x) + min(0, a (exp(x / a) - 1))
   | 'erf'
-  | 'switch'; // e3x's smooth_switch from 0 at x <= a to 1 at x >= b
+  | 'switch' // e3x's smooth_switch from 0 at x <= a to 1 at x >= b
+  | 'sin';
 
 export type Binary = 'add' | 'sub' | 'mul' | 'div';
 /** How b broadcasts onto a [rows, inner]: elementwise, one scalar, one value per row, or one per column. */
@@ -109,6 +110,12 @@ export interface Backend {
    *  w = sqrt(2) when a != a'. */
   power(x: Buf, p: Buf, B: number, A: number, lmax: number): void;
   powerGrad(x: Buf, dp: Buf, dx: Buf, B: number, A: number, lmax: number): void;
+
+  /** Each block of d1 rows mixed into d3 rows by its own matrix:
+   *  y[b d3 + j, c] = sum_i A[b, i d3 + j] x[b d1 + i, c], for b < B, c < C. */
+  rowMix(x: Buf, A: Buf, y: Buf, B: number, d1: number, d3: number, C: number): void;
+  /** dx[b d1 + i, c] (+)= sum_j A[b, i d3 + j] dy[b d3 + j, c];  dA[b, i d3 + j] (+)= sum_c x[b d1 + i, c] dy[b d3 + j, c]. */
+  rowMixGrad(x: Buf, A: Buf, dy: Buf, dx: Buf | null, dA: Buf | null, B: number, d1: number, d3: number, C: number): void;
 
   /** Block-averaged rows x cols thumbnail of a [R, C] tensor plus summary statistics. */
   thumb(x: Buf, R: number, C: number, rows: number, cols: number): Promise<Thumb>;

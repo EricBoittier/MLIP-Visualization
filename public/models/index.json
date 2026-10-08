@@ -7,6 +7,20 @@
   "weights": "pet-mad-xs.safetensors"
  },
  {
+  "name": "mace-mp-0b3-medium",
+  "kind": "mace",
+  "label": "MACE-MP-0b3 medium",
+  "meta": "mace-mp-0b3-medium.json",
+  "weights": "mace-mp-0b3-medium.safetensors"
+ },
+ {
+  "name": "mace-mp-0b2-small",
+  "kind": "mace",
+  "label": "MACE-MP-0b2 small",
+  "meta": "mace-mp-0b2-small.json",
+  "weights": "mace-mp-0b2-small.safetensors"
+ },
+ {
   "name": "ani-2x",
   "kind": "ani",
   "label": "ANI-2x",
@@ -21,7 +35,7 @@
  {
   "name": "physnet-acetone",
   "kind": "physnet",
-  "label": "PhysNet \u00b7 acetone MP2",
+  "label": "PhysNet · acetone MP2",
   "meta": "physnet-acetone.json",
   "weights": "physnet-acetone.safetensors"
  },

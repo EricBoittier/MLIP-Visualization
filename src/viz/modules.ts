@@ -14,7 +14,7 @@ export const MOD_COLOR: Record<string, string> = {
   // learned representations
   embedding: '#f472b6', gnn: '#94a3b8', edge_tokens: '#fb923c', transformer: '#818cf8', tokens: '#c084fc',
   attention: '#facc15', mlp: '#4ade80', node_update: '#a78bfa', message: '#60a5fa', interaction: '#60a5fa',
-  residual: '#4ade80', network: '#818cf8', kernel: '#facc15', regression: '#fb923c',
+  residual: '#4ade80', network: '#818cf8', kernel: '#facc15', regression: '#fb923c', product: '#f59e0b',
   // outputs
   readout: '#f87171', head: '#fca5a5', energy: '#fb7185', ncforce: '#a3e635', charges: '#f0abfc', electrostatics: '#e879f9',
 };

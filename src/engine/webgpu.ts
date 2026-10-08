@@ -6,7 +6,7 @@ import type { Backend, Binary, BMode, Buf, CutoffKind, NormKind, SeqLayout, Thum
 type GBuf = Buf & { g: GPUBuffer; cap: number };
 const gb = (b: Buf) => (b as GBuf).g;
 
-const UNARY: Record<Unary, number> = { silu: 0, sigmoid: 1, exp: 2, square: 3, sqrt: 4, neg: 5, tanh: 6, logclamp: 7, clamp: 8, acos: 9, cos: 10, pow: 11, celu: 12, erf: 13, switch: 14 };
+const UNARY: Record<Unary, number> = { silu: 0, sigmoid: 1, exp: 2, square: 3, sqrt: 4, neg: 5, tanh: 6, logclamp: 7, clamp: 8, acos: 9, cos: 10, pow: 11, celu: 12, erf: 13, switch: 14, sin: 15 };
 const BINARY: Record<Binary, number> = { add: 0, sub: 1, mul: 2, div: 3 };
 const BMODE = { full: 0, scalar: 1, row: 2, col: 3 } as const;
 const WG = 256;
@@ -122,6 +122,7 @@ fn sw(x: f32, x0: f32, x1: f32) -> vec2f {
     case 11u: { r = pow(v, p.a); }
     case 12u: { r = select(p.a * (exp(v / p.a) - 1.0), v, v > 0.0); }
     case 13u: { r = erf_(v); }
+    case 15u: { r = sin(v); }
     default: { r = sw(v, p.a, p.b).x; }
   }
   y[i] = r;
@@ -166,6 +167,7 @@ fn sw(x: f32, x0: f32, x1: f32) -> vec2f {
     case 11u: { d = p.a * pow(v, p.a - 1.0); }
     case 12u: { d = select(exp(v / p.a), 1.0, v > 0.0); }
     case 13u: { d = 1.1283791670955126 * exp(-v * v); }
+    case 15u: { d = cos(v); }
     default: { d = sw(v, p.a, p.b).y; }
   }
   dx[i] += d * dy[i];
@@ -550,6 +552,36 @@ fn herm(c: u32, xv: f32) -> vec2f {
     y[e] += s;
   }
 }`,
+  rowmix: `
+struct P { B: u32, d1: u32, d3: u32, C: u32, mode: u32 }
+@group(0) @binding(0) var<storage, read> x: array<f32>;
+@group(0) @binding(1) var<storage, read> A: array<f32>;
+@group(0) @binding(2) var<storage, read> dy: array<f32>;
+@group(0) @binding(3) var<storage, read_write> out: array<f32>; // y, dx or dA
+@group(0) @binding(4) var<uniform> p: P;
+${idx1}
+@compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let t = gidx(g, nw); let m = p.d1 * p.d3;
+  if (p.mode == 0u) { // y[b d3 + j, c]
+    if (t >= p.B * p.d3 * p.C) { return; }
+    let c = t % p.C; let r = t / p.C; let b = r / p.d3; let j = r % p.d3;
+    var s = 0.0;
+    for (var i = 0u; i < p.d1; i++) { s += A[b * m + i * p.d3 + j] * x[(b * p.d1 + i) * p.C + c]; }
+    out[t] = s;
+  } else if (p.mode == 1u) { // dx[b d1 + i, c]
+    if (t >= p.B * p.d1 * p.C) { return; }
+    let c = t % p.C; let r = t / p.C; let b = r / p.d1; let i = r % p.d1;
+    var s = 0.0;
+    for (var j = 0u; j < p.d3; j++) { s += A[b * m + i * p.d3 + j] * dy[(b * p.d3 + j) * p.C + c]; }
+    out[t] += s;
+  } else { // dA[b, i d3 + j]
+    if (t >= p.B * m) { return; }
+    let b = t / m; let i = (t % m) / p.d3; let j = t % p.d3;
+    var s = 0.0;
+    for (var c = 0u; c < p.C; c++) { s += x[(b * p.d1 + i) * p.C + c] * dy[(b * p.d3 + j) * p.C + c]; }
+    out[t] += s;
+  }
+}`,
   sph: `
 struct P { n: u32, L: u32, grad: u32 }
 @group(0) @binding(0) var<storage, read> u: array<f32>;
@@ -912,6 +944,13 @@ export class WebGPUBackend implements Backend {
   }
   splineGrad(x: Buf, V: Buf, D: Buf, dy: Buf, dx: Buf, n: number, C: number, K: number, h: number) {
     if (n) this.run('spline', [x, V, D, dy, dx], [n, C, K, F(h), 1], this.grid(n));
+  }
+  rowMix(x: Buf, A: Buf, y: Buf, B: number, d1: number, d3: number, C: number) {
+    if (B * d3 * C) this.run('rowmix', [x, A, x, y], [B, d1, d3, C, 0], this.grid(B * d3 * C));
+  }
+  rowMixGrad(x: Buf, A: Buf, dy: Buf, dx: Buf | null, dA: Buf | null, B: number, d1: number, d3: number, C: number) {
+    if (dx && B * d1 * C) this.run('rowmix', [x, A, dy, dx], [B, d1, d3, C, 1], this.grid(B * d1 * C));
+    if (dA && B * d1 * d3) this.run('rowmix', [x, A, dy, dA], [B, d1, d3, C, 2], this.grid(B * d1 * d3));
   }
   sph(u: Buf, y: Buf, n: number, lmax: number) {
     if (lmax > 6) throw new Error('sph: lmax > 6 is not supported on WebGPU');

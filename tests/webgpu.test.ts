@@ -1,5 +1,5 @@
 // The WebGPU backend against the CPU reference: every kernel, then whole models.
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { create, globals } from 'webgpu';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Backend } from '../src/engine/backend';
@@ -7,7 +7,7 @@ import { CpuBackend } from '../src/engine/cpu';
 import { Graph, type Tensor } from '../src/engine/tensor';
 import { WebGPUBackend } from '../src/engine/webgpu';
 import { evaluate } from '../src/models/pet/model';
-import { loadANI, loadModel } from './util';
+import { loadANI, loadMACE, loadModel } from './util';
 
 Object.assign(globalThis, globals);
 let gpu: WebGPUBackend;
@@ -78,6 +78,11 @@ describe('WebGPU kernels', () => {
     const rows = g.linear(g.concatCols([Y, S]), g.constant(rand(25 * 30, 33), [25, 30]));
     const P = g.power(g.reshape(g.sliceCols(rows, 0, 25), [7, 25]), 1, 7, 4);
     return { out: g.add(g.transpose(g.transpose(P)), g.scale(P, 0.5)), inputs: [r, v] };
+  }));
+  it('sin / row mix', () => compare((g) => {
+    const B = 5, d1 = 3, d3 = 5, C = 7;
+    const x = T(g, [B * d1, C], 41), A = T(g, [B, d1 * d3], 42), t = T(g, [B * d3, C], 43);
+    return { out: g.mul(g.rowMix(x, A, d1, d3), g.unary('sin', g.scale(t, 2))), inputs: [x, A, t] };
   }));
   it('column broadcast', () => compare((g) => {
     const a = T(g, [11, 6], 22), b = T(g, [1, 6], 23);
@@ -151,4 +156,26 @@ describe('WebGPU ANI-2x vs CPU', () => {
       expect(maxRel(res[1][1], res[0][1])).toBeLessThan(1e-4);
     }
   });
+});
+
+describe('WebGPU MACE vs mace-torch', () => {
+  for (const name of ['mace-mp-0b3-medium', 'mace-mp-0b2-small'].filter((m) => existsSync(`public/models/${m}.json`))) {
+    it(name, async () => {
+      const model = loadMACE(name, gpu);
+      for (const c of ['ethanol', 'silicon', 'sulfur']) {
+        const ref = JSON.parse(readFileSync(`tests/reference/${name}_${c}.json`, 'utf8'));
+        const g = new Graph(gpu), t0 = performance.now();
+        const out = model.forward(g, { numbers: ref.atomic_numbers, positions: ref.positions, cell: ref.cell, pbc: ref.pbc }, { forces: true });
+        g.backward(out.energy);
+        const E = (await gpu.read(out.energy.buf))[0], F = await gpu.read(out.positions.grad!);
+        const ms = performance.now() - t0;
+        g.release();
+        expect(gpuErrors.splice(0)).toEqual([]);
+        const dE = Math.abs(E - ref.energy), dF = Math.max(...Array.from(F, (x, i) => Math.abs(-x - ref.forces.flat()[i])));
+        console.log(`gpu ${name.padEnd(19)} ${c.padEnd(8)} dE=${dE.toExponential(2)} dF=${dF.toExponential(2)} ${ms.toFixed(0)} ms`);
+        expect(dE).toBeLessThan(1e-5 * Math.abs(ref.energy));
+        expect(dF).toBeLessThan(1e-4 * Math.max(1, ...ref.forces.flat().map(Math.abs)));
+      }
+    });
+  }
 });

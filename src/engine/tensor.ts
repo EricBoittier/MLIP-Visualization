@@ -297,6 +297,17 @@ export class Graph {
   }
 
   /** SOAP power spectrum of B blocks of A density rows each (see Backend.power). */
+  /** Every block of d1 rows of x [B d1, C] mixed into d3 rows by its own matrix A[b] [d1, d3] (A is [B, d1 d3]):
+   *  y[b d3 + j, :] = sum_i A[b, i d3 + j] x[b d1 + i, :]. */
+  rowMix(x: Tensor, A: Tensor, d1: number, d3: number, name = 'row_mix'): Tensor {
+    const B = A.rows, C = x.cols;
+    if (x.rows !== B * d1 || A.cols !== d1 * d3) throw new Error(`rowMix: x ${x.shape} and A ${A.shape} for blocks ${d1} -> ${d3}`);
+    const y = this.tensor([B * d3, C]);
+    this.be.rowMix(x.buf, A.buf, y.buf, B, d1, d3, C);
+    return this.record(name, [x, A], y, () => this.be.rowMixGrad(x.buf, A.buf, y.grad!, this.g(x), this.g(A), B, d1, d3, C),
+                       undefined, rules.mul);
+  }
+
   power(c: Tensor, B: number, A: number, lmax: number, name = 'power_spectrum'): Tensor {
     const y = this.tensor([B, ((A * (A + 1)) / 2) * (lmax + 1)]);
     this.be.power(c.buf, y.buf, B, A, lmax);

@@ -28,6 +28,7 @@ function unaryF(op: Unary, x: number, a: number, b: number): number {
     case 'celu': return x > 0 ? x : a * Math.expm1(x / a);
     case 'erf': return erf(x);
     case 'switch': return smoothSwitch(x, a, b)[0];
+    case 'sin': return Math.sin(x);
   }
 }
 
@@ -48,6 +49,7 @@ function unaryD(op: Unary, x: number, y: number, a: number, b: number): number {
     case 'celu': return x > 0 ? 1 : Math.exp(x / a);
     case 'erf': return (2 / Math.sqrt(Math.PI)) * Math.exp(-x * x);
     case 'switch': return smoothSwitch(x, a, b)[1];
+    case 'sin': return Math.cos(x);
   }
 }
 
@@ -367,6 +369,32 @@ export class CpuBackend implements Backend {
       for (let c = 0; c < C; c++) g += DY[e * C + c] * hermite(Vv, Dd, c, K, h, X[e])[1];
       DX[e] += g;
     }
+  }
+
+  rowMix(x: Buf, A: Buf, y: Buf, B: number, d1: number, d3: number, C: number) {
+    const X = f(x), Am = f(A), Y = f(y);
+    for (let b = 0; b < B; b++)
+      for (let j = 0; j < d3; j++)
+        for (let c = 0; c < C; c++) {
+          let s = 0;
+          for (let i = 0; i < d1; i++) s += Am[b * d1 * d3 + i * d3 + j] * X[(b * d1 + i) * C + c];
+          Y[(b * d3 + j) * C + c] = s;
+        }
+  }
+
+  rowMixGrad(x: Buf, A: Buf, dy: Buf, dx: Buf | null, dA: Buf | null, B: number, d1: number, d3: number, C: number) {
+    const X = f(x), Am = f(A), DY = f(dy), DX = dx && f(dx), DA = dA && f(dA);
+    for (let b = 0; b < B; b++)
+      for (let i = 0; i < d1; i++)
+        for (let j = 0; j < d3; j++) {
+          const a = Am[b * d1 * d3 + i * d3 + j], xo = (b * d1 + i) * C, yo = (b * d3 + j) * C;
+          let s = 0;
+          for (let c = 0; c < C; c++) {
+            if (DX) DX[xo + c] += a * DY[yo + c];
+            s += X[xo + c] * DY[yo + c];
+          }
+          if (DA) DA[b * d1 * d3 + i * d3 + j] += s;
+        }
   }
 
   sph(u: Buf, y: Buf, n: number, lmax: number) {

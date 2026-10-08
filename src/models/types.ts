@@ -41,7 +41,7 @@ export interface Forward {
   extras?: Record<string, Tensor>;
 }
 
-export type ModelKind = 'pet' | 'ani' | 'krr' | 'physnet';
+export type ModelKind = 'pet' | 'ani' | 'krr' | 'physnet' | 'mace';
 
 export interface Model {
   readonly kind: ModelKind;

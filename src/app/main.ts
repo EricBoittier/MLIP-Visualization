@@ -434,7 +434,7 @@ $('rattle').onclick = () => {
 // here, on the current structure, against a teacher model.
 interface ModelEntry { name: string; kind: ModelKind; label?: string; meta?: string; weights?: string; params?: any }
 const kindSel = $<HTMLSelectElement>('kind'), modelSel = $<HTMLSelectElement>('model');
-const KIND_ORDER: ModelKind[] = ['pet', 'ani', 'physnet', 'krr'];
+const KIND_ORDER: ModelKind[] = ['pet', 'mace', 'ani', 'physnet', 'krr'];
 let fillVariants = () => {};
 let entries: ModelEntry[] = [];
 const loaded = new Set<string>(); // model ids the worker holds

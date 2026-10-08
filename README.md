@@ -17,8 +17,9 @@ Models:
 | ANI-2x | Behler–Parrinello network | runs, verified against TorchANI |
 | KRR with SOAP | kernel method, fitted in the browser to another model | runs; forces checked by finite differences |
 | PhysNet (mmml physnetjax, invariant) | message-passing network with charges and electrostatics | runs, verified against the JAX code; demo model trained on acetone dimers |
+| MACE (MACE-MP-0) | equivariant message passing (ACE) | runs, verified against mace-torch |
 
-MACE, SpookyNet and other equivariant models are left for later.
+SpookyNet and other equivariant models are left for later.
 
 Everything runs locally: a small tape-based autograd engine in TypeScript with
 a CPU backend and a WebGPU backend (WGSL kernels for every op, forward and
@@ -36,6 +37,8 @@ Model weights are not in the repository. Convert them into `public/models/`:
 ```bash
 uv run scripts/convert_pet.py --model pet-mad-xs --out public/models/pet-mad-xs   # add --non-conservative for direct forces
 uv run scripts/convert_ani.py --out public/models/ani-2x
+uv run scripts/convert_mace.py --model mace-mp-0b3-medium --out public/models/mace-mp-0b3-medium
+uv run scripts/convert_mace.py --model mace-mp-0b2-small --out public/models/mace-mp-0b2-small
 ```
 
 PhysNet models come from mmml's `physnetjax` (invariant, `max_degree = 0`):
@@ -84,6 +87,7 @@ with the CPU ones (through Node's `webgpu` package).
 
 ## Credits
 
+MACE-MP-0 is from [mace-foundations/mace-mp-0](https://huggingface.co/mace-foundations/mace-mp-0) (MIT).
 ANI-2x is from [TorchANI](https://github.com/aiqm/torchani) (MIT).
 `scripts/convert_pet.py` comes from
 [pet-kokkos](https://github.com/EricBoittier/pet-kokkos). PET and PET-MAD are

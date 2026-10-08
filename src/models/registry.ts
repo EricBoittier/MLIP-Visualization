@@ -5,6 +5,7 @@ import { checkSupported } from './pet/checkpoint';
 import { ANI } from './ani/model';
 import { KRR } from './krr/model';
 import { PhysNet } from './physnet/model';
+import { MACE } from './mace/model';
 import { PET } from './pet/model';
 import type { Model, ModelKind } from './types';
 
@@ -23,6 +24,8 @@ export async function createModel(be: Backend, kind: ModelKind, meta: any, weigh
       return new ANI(be, meta, parseSafetensors(weights!));
     case 'physnet':
       return new PhysNet(be, meta, parseSafetensors(weights!));
+    case 'mace':
+      return new MACE(be, meta, parseSafetensors(weights!));
     case 'krr': {
       const teacher = ctx.models.get(meta.teacher);
       if (!teacher || teacher.kind === 'krr') throw new Error(`KRR needs a loaded teacher model (got "${meta.teacher}")`);

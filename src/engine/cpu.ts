@@ -382,6 +382,44 @@ export class CpuBackend implements Backend {
         }
   }
 
+  couple(left: Buf, right: Buf, K: Buf, y: Buf, N: number, n1: number, n2: number, n3: number, F: number) {
+    const L = f(left), R = f(right), Ker = f(K), Y = f(y);
+    for (let n = 0; n < N; n++) for (let k = 0; k < n3; k++) for (let c = 0; c < F; c++) {
+      let s = 0;
+      for (let i = 0; i < n1; i++) {
+        const lv = L[(n * n1 + i) * F + c];
+        for (let j = 0; j < n2; j++) s += lv * R[(n * n2 + j) * F + c] * Ker[(((i * n2 + j) * n3 + k) * F) + c];
+      }
+      Y[(n * n3 + k) * F + c] = s;
+    }
+  }
+
+  coupleGrad(left: Buf, right: Buf, K: Buf, dy: Buf, dLeft: Buf | null, dRight: Buf | null, dK: Buf | null,
+             N: number, n1: number, n2: number, n3: number, F: number) {
+    const L = f(left), R = f(right), Ker = f(K), DY = f(dy);
+    const DL = dLeft && f(dLeft), DR = dRight && f(dRight), DK = dK && f(dK);
+    const at = (i: number, j: number, k: number, c: number) => (((i * n2 + j) * n3 + k) * F) + c;
+    for (let n = 0; n < N; n++) for (let c = 0; c < F; c++) {
+      for (let i = 0; i < n1; i++) if (DL) {
+        let s = 0;
+        for (let j = 0; j < n2; j++) for (let k = 0; k < n3; k++)
+          s += DY[(n * n3 + k) * F + c] * R[(n * n2 + j) * F + c] * Ker[at(i, j, k, c)];
+        DL[(n * n1 + i) * F + c] += s;
+      }
+      for (let j = 0; j < n2; j++) if (DR) {
+        let s = 0;
+        for (let i = 0; i < n1; i++) for (let k = 0; k < n3; k++)
+          s += DY[(n * n3 + k) * F + c] * L[(n * n1 + i) * F + c] * Ker[at(i, j, k, c)];
+        DR[(n * n2 + j) * F + c] += s;
+      }
+    }
+    if (DK) for (let i = 0; i < n1; i++) for (let j = 0; j < n2; j++) for (let k = 0; k < n3; k++) for (let c = 0; c < F; c++) {
+      let s = 0;
+      for (let n = 0; n < N; n++) s += DY[(n * n3 + k) * F + c] * L[(n * n1 + i) * F + c] * R[(n * n2 + j) * F + c];
+      DK[at(i, j, k, c)] += s;
+    }
+  }
+
   rowMixGrad(x: Buf, A: Buf, dy: Buf, dx: Buf | null, dA: Buf | null, B: number, d1: number, d3: number, C: number) {
     const X = f(x), Am = f(A), DY = f(dy), DX = dx && f(dx), DA = dA && f(dA);
     for (let b = 0; b < B; b++)

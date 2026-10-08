@@ -308,6 +308,43 @@ export class Graph {
                        undefined, rules.mul);
   }
 
+  /** y = left ⊗_K right, one spherical tensor per row-block (see Backend.couple). */
+  couple(left: Tensor, right: Tensor, K: Tensor, n1: number, n2: number, n3: number, name = 'cg_product'): Tensor {
+    const F = left.cols, N = left.rows / n1;
+    if (right.cols !== F || K.cols !== F || right.rows !== N * n2 || K.rows !== n1 * n2 * n3 || !Number.isInteger(N))
+      throw new Error(`couple: left ${left.shape}, right ${right.shape}, K ${K.shape} for ${n1}×${n2}→${n3}`);
+    const y = this.tensor([N * n3, F]);
+    this.be.couple(left.buf, right.buf, K.buf, y.buf, N, n1, n2, n3, F);
+    return this.record(name, [left, right, K], y, () => {
+      this.be.coupleGrad(left.buf, right.buf, K.buf, y.grad!, this.g(left), this.g(right), this.g(K), N, n1, n2, n3, F);
+    }, undefined, rules.mul);
+  }
+
+  /** Matrix product. `transA`/`transB` transpose the stored layouts [rows, cols]. */
+  mm(a: Tensor, b: Tensor, transA = false, transB = false, name = 'matmul'): Tensor {
+    const [aR, aC, bR, bC] = [a.rows, a.cols, b.rows, b.cols];
+    const M = transA ? aC : aR, K = transA ? aR : aC, K2 = transB ? bC : bR, N = transB ? bR : bC;
+    if (K !== K2) throw new Error(`mm: ${a.shape}${transA ? 'ᵀ' : ''} × ${b.shape}${transB ? 'ᵀ' : ''}`);
+    const y = this.tensor([M, N]);
+    this.be.matmul(a.buf, b.buf, y.buf, M, N, K, transA, transB, false);
+    return this.record(name, [a, b], y, () => {
+      const dy = y.grad!, dA = this.g(a), dB = this.g(b);
+      if (!transA && !transB) {
+        if (dA) this.be.matmul(dy, b.buf, dA, M, K, N, false, true, true);
+        if (dB) this.be.matmul(a.buf, dy, dB, K, N, M, true, false, true);
+      } else if (!transA && transB) {
+        if (dA) this.be.matmul(dy, b.buf, dA, M, K, N, false, false, true);
+        if (dB) this.be.matmul(dy, a.buf, dB, N, K, M, true, false, true);
+      } else if (transA && !transB) {
+        if (dA) this.be.matmul(b.buf, dy, dA, K, M, N, false, true, true);
+        if (dB) this.be.matmul(a.buf, dy, dB, K, N, M, false, false, true);
+      } else {
+        if (dA) this.be.matmul(b.buf, dy, dA, K, M, N, true, true, true);
+        if (dB) this.be.matmul(dy, a.buf, dB, N, K, M, true, true, true);
+      }
+    }, undefined, rules.mul);
+  }
+
   power(c: Tensor, B: number, A: number, lmax: number, name = 'power_spectrum'): Tensor {
     const y = this.tensor([B, ((A * (A + 1)) / 2) * (lmax + 1)]);
     this.be.power(c.buf, y.buf, B, A, lmax);

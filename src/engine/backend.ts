@@ -117,6 +117,13 @@ export interface Backend {
   /** dx[b d1 + i, c] (+)= sum_j A[b, i d3 + j] dy[b d3 + j, c];  dA[b, i d3 + j] (+)= sum_c x[b d1 + i, c] dy[b d3 + j, c]. */
   rowMixGrad(x: Buf, A: Buf, dy: Buf, dx: Buf | null, dA: Buf | null, B: number, d1: number, d3: number, C: number): void;
 
+  /** Feature-wise Clebsch–Gordan product. left [N n1, F], right [N n2, F], K [n1 n2 n3, F] with
+   *  K[((i n2 + j) n3 + k) F + f] the coefficient of component (i, j, k, f):
+   *  y[n n3 + k, f] = sum_{i,j} left[n n1 + i, f] right[n n2 + j, f] K[i, j, k, f]. */
+  couple(left: Buf, right: Buf, K: Buf, y: Buf, N: number, n1: number, n2: number, n3: number, F: number): void;
+  coupleGrad(left: Buf, right: Buf, K: Buf, dy: Buf, dLeft: Buf | null, dRight: Buf | null, dK: Buf | null,
+             N: number, n1: number, n2: number, n3: number, F: number): void;
+
   /** Block-averaged rows x cols thumbnail of a [R, C] tensor plus summary statistics. */
   thumb(x: Buf, R: number, C: number, rows: number, cols: number): Promise<Thumb>;
 }

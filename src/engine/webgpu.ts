@@ -582,6 +582,53 @@ ${idx1}
     out[t] += s;
   }
 }`,
+  couple: `
+struct P { N: u32, n1: u32, n2: u32, n3: u32, F: u32, mode: u32 }
+@group(0) @binding(0) var<storage, read> left: array<f32>;
+@group(0) @binding(1) var<storage, read> right: array<f32>;
+@group(0) @binding(2) var<storage, read> K: array<f32>;
+@group(0) @binding(3) var<storage, read> dy: array<f32>;
+@group(0) @binding(4) var<storage, read_write> out: array<f32>;
+@group(0) @binding(5) var<uniform> p: P;
+${idx1}
+fn kat(i: u32, j: u32, k: u32, c: u32) -> u32 { return (((i * p.n2 + j) * p.n3 + k) * p.F) + c; }
+@compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let t = gidx(g, nw);
+  if (p.mode == 0u) {
+    if (t >= p.N * p.n3 * p.F) { return; }
+    let c = t % p.F; let r = t / p.F; let n = r / p.n3; let k = r % p.n3;
+    var s = 0.0;
+    for (var i = 0u; i < p.n1; i++) {
+      let lv = left[(n * p.n1 + i) * p.F + c];
+      for (var j = 0u; j < p.n2; j++) { s += lv * right[(n * p.n2 + j) * p.F + c] * K[kat(i, j, k, c)]; }
+    }
+    out[t] = s;
+  } else if (p.mode == 1u) {
+    if (t >= p.N * p.n1 * p.F) { return; }
+    let c = t % p.F; let r = t / p.F; let n = r / p.n1; let i = r % p.n1;
+    var s = 0.0;
+    for (var j = 0u; j < p.n2; j++) {
+      let rv = right[(n * p.n2 + j) * p.F + c];
+      for (var k = 0u; k < p.n3; k++) { s += dy[(n * p.n3 + k) * p.F + c] * rv * K[kat(i, j, k, c)]; }
+    }
+    out[t] += s;
+  } else if (p.mode == 2u) {
+    if (t >= p.N * p.n2 * p.F) { return; }
+    let c = t % p.F; let r = t / p.F; let n = r / p.n2; let j = r % p.n2;
+    var s = 0.0;
+    for (var i = 0u; i < p.n1; i++) {
+      let lv = left[(n * p.n1 + i) * p.F + c];
+      for (var k = 0u; k < p.n3; k++) { s += dy[(n * p.n3 + k) * p.F + c] * lv * K[kat(i, j, k, c)]; }
+    }
+    out[t] += s;
+  } else {
+    if (t >= p.n1 * p.n2 * p.n3 * p.F) { return; }
+    let c = t % p.F; let r = t / p.F; let k = r % p.n3; let q = r / p.n3; let j = q % p.n2; let i = q / p.n2;
+    var s = 0.0;
+    for (var n = 0u; n < p.N; n++) { s += dy[(n * p.n3 + k) * p.F + c] * left[(n * p.n1 + i) * p.F + c] * right[(n * p.n2 + j) * p.F + c]; }
+    out[t] += s;
+  }
+}`,
   sph: `
 struct P { n: u32, L: u32, grad: u32 }
 @group(0) @binding(0) var<storage, read> u: array<f32>;
@@ -951,6 +998,16 @@ export class WebGPUBackend implements Backend {
   rowMixGrad(x: Buf, A: Buf, dy: Buf, dx: Buf | null, dA: Buf | null, B: number, d1: number, d3: number, C: number) {
     if (dx && B * d1 * C) this.run('rowmix', [x, A, dy, dx], [B, d1, d3, C, 1], this.grid(B * d1 * C));
     if (dA && B * d1 * d3) this.run('rowmix', [x, A, dy, dA], [B, d1, d3, C, 2], this.grid(B * d1 * d3));
+  }
+  couple(left: Buf, right: Buf, K: Buf, y: Buf, N: number, n1: number, n2: number, n3: number, F: number) {
+    if (N * n3 * F) this.run('couple', [left, right, K, left, y], [N, n1, n2, n3, F, 0], this.grid(N * n3 * F));
+  }
+  coupleGrad(left: Buf, right: Buf, K: Buf, dy: Buf, dLeft: Buf | null, dRight: Buf | null, dK: Buf | null,
+             N: number, n1: number, n2: number, n3: number, F: number) {
+    const P = [N, n1, n2, n3, F];
+    if (dLeft && N * n1 * F) this.run('couple', [left, right, K, dy, dLeft], [...P, 1], this.grid(N * n1 * F));
+    if (dRight && N * n2 * F) this.run('couple', [left, right, K, dy, dRight], [...P, 2], this.grid(N * n2 * F));
+    if (dK && n1 * n2 * n3 * F) this.run('couple', [left, right, K, dy, dK], [...P, 3], this.grid(n1 * n2 * n3 * F));
   }
   sph(u: Buf, y: Buf, n: number, lmax: number) {
     if (lmax > 6) throw new Error('sph: lmax > 6 is not supported on WebGPU');

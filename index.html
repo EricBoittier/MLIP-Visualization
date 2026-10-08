@@ -13,18 +13,28 @@
       <label class="file">Open model…<input id="model-files" type="file" accept=".json,.safetensors" multiple /></label>
       <label>Structure <select id="structure"></select></label>
       <label class="file">Open .xyz…<input id="xyz-file" type="file" accept=".xyz,.extxyz" /></label>
+ <label title="How forces are computed">Forces <select id="force-mode">
+        <option value="conservative">conservative (−∂E/∂r)</option>
+        <option value="direct">direct (non-conservative)</option>
+        <option value="both">both, compared</option></select></label>
       <button id="rattle" title="Displace every atom a little and run a new pass">Rattle</button>
       <div id="status"></div>
     </header>
     <main>
       <aside id="walk">
-        <div id="chapter-head"><span id="chapter-phase"></span><h2 id="chapter-title">Loading…</h2></div>
-        <div id="chapter-text"></div>
-        <div id="diagram"></div>
+        <div id="chapter-head"><span id="chapter-phase"></span><div id="chapter-title">Loading…</div></div>
+        <div id="intro">
+          <div id="intro-text"></div>
+          <figure><div id="diagram"></div><figcaption>The architecture of the loaded model. Click a box to jump there; ± collapses it in 3D.</figcaption></figure>
+          <p class="keys"><kbd>Space</kbd> continue · <kbd>←</kbd> <kbd>→</kbd> step · drag to pan, scroll to zoom, right-drag to rotate</p>
+        </div>
+        <div id="article"></div>
         <div id="model-card"></div>
       </aside>
       <section id="net">
         <div id="tooltip" hidden></div>
+        <div id="zen-count"><span id="zen-params"></span><small>parameters</small></div>
+        <div id="zen-progress"><i class="f"></i><i class="b"></i></div>
         <div id="legend">
           <span><i class="sw value"></i>activation</span>
           <span><i class="sw grad"></i>gradient ∂E/∂·</span>
@@ -34,6 +44,7 @@
         <div id="net-buttons">
           <button id="follow" class="on" title="Camera follows the active op">Follow</button>
           <button id="overview" title="Show the whole network">Overview</button>
+          <button id="zen" title="Just the numbers, forward and backward, on a loop (Esc to leave)">Zen</button>
         </div>
       </section>
       <aside id="right">
@@ -45,7 +56,8 @@
     <footer>
       <button id="restart" title="Back to the start (Home)">⏮</button>
       <button id="prev" title="Previous op (←)">◀</button>
-      <button id="play" title="Play / pause (space)">▶</button>
+      <button id="play" title="Play the whole pass">▶</button>
+      <button id="continue" class="primary" title="Play to the end of this step (Space)">Continue</button>
       <button id="next" title="Next op (→)">▶|</button>
       <button id="end" title="Show the whole pass (End)">⏭</button>
       <label class="speed">Speed <input id="speed" type="range" min="0" max="1" step="0.01" value="0.35" /><span id="speed-val"></span></label>

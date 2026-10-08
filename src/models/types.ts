@@ -31,6 +31,7 @@ export interface AttentionSpec {
 export interface Forward {
   energy: Tensor; // [1] eV
   perAtom: Tensor; // [N] eV
+  ncForces?: Tensor; // [N, 3] eV/A, direct (non-conservative) forces, for models that predict them
   positions: Tensor; // [N, 3], requires grad when forces are wanted
   virialVectors?: Tensor; // [K, 3] vectors v with W = -sum v (x) dE/dv (periodic stress)
   graph: GraphSpec;
@@ -46,7 +47,10 @@ export interface Model {
   readonly params: Map<string, Tensor>;
   /** Elements the model can handle (atomic numbers). */
   readonly elements: number[];
-  forward(g: Graph, sys: System, opts: { forces?: boolean }): Forward;
+  /** Whether the model also predicts forces directly (without a backward pass). */
+  readonly hasNC?: boolean;
+  /** `forces`: positions take part in the backward pass; `nc`: run the direct force head too. */
+  forward(g: Graph, sys: System, opts: { forces?: boolean; nc?: boolean }): Forward;
 }
 
 export const range = (n: number, s = 0) => Int32Array.from({ length: n }, (_, i) => s + i);

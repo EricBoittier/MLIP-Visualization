@@ -1,15 +1,16 @@
 import './style.css';
 import { SYMBOLS } from '../common/elements';
+import type { System } from '../common/structure';
 import type { ModelKind } from '../models/types';
 import type { ModelUI } from '../models/ui';
 import { UIS } from '../models/uis';
-import type { System } from '../common/structure';
 import { GraphView } from '../viz/graph';
+import { Article, buildSteps, epilogue, type Step } from '../viz/article';
 import { Diagram } from '../viz/diagram';
-import { ancestors, type Mod, MOD_COLOR, walk } from '../viz/modules';
+import { ancestors, MOD_COLOR, walk } from '../viz/modules';
 import { type Hit, NetworkView } from '../viz/network';
 import { Timeline } from '../viz/timeline';
-import type { FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
+import type { ForceMode, FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
 import { PRESETS } from './presets';
 import { parseXYZ } from './xyz';
 
@@ -33,7 +34,7 @@ function evaluate() {
   if (!meta) return;
   if (busy) { queued = true; return; }
   busy = true;
-  send({ type: 'evaluate', system, selected });
+  send({ type: 'evaluate', system, selected, mode: $<HTMLSelectElement>('force-mode').value as ForceMode });
 }
 
 // ------------------------------------------------------------------ views
@@ -45,13 +46,35 @@ graph.onSelect = (atom) => { selected = atom; evaluate(); };
 const diagram = new Diagram($('diagram'));
 let hover: Hit | null = null;
 
-/** Chapters: runs of ops in the same innermost module, then the backward pass. */
-let chapters: { mod: Mod | null; first: number }[] = [];
+/** Article steps, and for every timeline position the step it belongs to. */
+const article = new Article($('article'));
+let steps: Step[] = [], stepAt = new Int32Array(0), stepStart: number[] = [], stepEnd: number[] = [];
 function buildChapters() {
-  chapters = [];
-  net.leaf.forEach((m, i) => { if (!chapters.length || chapters[chapters.length - 1].mod !== m) chapters.push({ mod: m, first: i }); });
-  chapters.push({ mod: null, first: timeline.forwardEnd });
+  steps = buildSteps(ops, net.leaf, ctx());
+  stepAt = new Int32Array(timeline.steps.length + 1);
+  stepStart = []; stepEnd = [];
+  steps.forEach((st, k) => {
+    const idx = st.ops.map((op) => timeline.indexOf(op, st.dir));
+    stepStart[k] = Math.min(...idx); stepEnd[k] = Math.max(...idx) + 1;
+    for (const i of idx) stepAt[i] = k;
+  });
+  stepAt[timeline.steps.length] = steps.length - 1;
   drawDiagram();
+}
+let hasNC = false;
+const ctx = () => ({ ops, pass: pass!, meta, ui: ui! });
+const renderArticle = () => pass && steps.length && article.render(steps, ctx(), epilogue(pass, hasNC));
+article.onSeek = (k) => { timeline.seek(stepStart[k]); timeline.stopAt = stepEnd[k]; timeline.playing = true; follow(); refresh(true); };
+const follow = () => { net.follow = true; $('follow').classList.add('on'); };
+/** Play to the end of the current step (or the next one, at a boundary). */
+function continueStep() {
+  if (!steps.length) return;
+  if (timeline.done) timeline.seek(0);
+  const k = stepAt[Math.min(timeline.state().k, timeline.steps.length)];
+  timeline.stopAt = stepEnd[k] > timeline.t + 1e-6 ? stepEnd[k] : stepEnd[Math.min(k + 1, steps.length - 1)];
+  timeline.playing = true;
+  follow();
+  refresh();
 }
 const drawDiagram = () => net.root && ui && diagram.build(net.root, (m) => ui!.subtitle(m, meta), net.collapsed);
 diagram.onNavigate = (m) => {
@@ -65,40 +88,36 @@ diagram.onToggle = (m) => net.toggle(m.id);
 net.onCollapse = () => { drawDiagram(); refresh(true); };
 new ResizeObserver(() => drawDiagram()).observe($('diagram'));
 
-/** The chapter of the current timeline position. */
-function currentChapter(k: number) {
-  if (k >= timeline.forwardEnd) return chapters.length - 1;
-  let c = 0;
-  chapters.forEach((ch, i) => { if (ch.mod && ch.first <= k) c = i; });
-  return c;
-}
-
-let lastActive = -2, lastChapter = -1;
+let lastActive = -2, lastStep = -1;
 function refresh(force = false) {
   if (!ops.length || !pass) return;
   const s = timeline.state();
   net.setProgress(s.fwd, s.bwd, s.active, s.dir);
   diagram.update(s.fwd, s.bwd, s.active);
-  const k = Math.min(s.k, timeline.steps.length);
-  const ci = currentChapter(k);
-  if (ci !== lastChapter || force) {
-    lastChapter = ci;
-    const m = chapters[ci].mod;
-    const crumbs = m ? ancestors(m).slice(1) : [];
-    $('chapter-title').innerHTML = m
-      ? crumbs.map((a, i) => `<span style="color:${MOD_COLOR[a.type]}">${i < crumbs.length - 1 ? a.short : a.title}</span>`).join('<i> › </i>')
-      : 'Backward pass → forces';
-    $('chapter-phase').textContent = m ? 'forward pass' : 'backward pass';
-    $('chapter-phase').className = m ? '' : 'bwd';
-    $('chapter-text').innerHTML = ui!.narration(m ?? 'backward', meta) || (m ? ui!.narration(m.parent ?? m, meta) : '');
+  const k = stepAt[Math.min(s.k, timeline.steps.length)] ?? 0;
+  if (k !== lastStep || force) {
+    lastStep = k;
+    article.setActive(k);
+    const st = steps[k];
+    const crumbs = st ? ancestors(st.mod).slice(1) : [];
+    $('chapter-title').innerHTML = crumbs.map((a) => `<span style="color:${MOD_COLOR[a.type]}">${a.short}</span>`).join('<i> › </i>');
+    $('chapter-phase').textContent = st?.dir === 'bwd' ? 'backward pass' : 'forward pass';
+    $('chapter-phase').className = st?.dir === 'bwd' ? 'bwd' : '';
   }
   if (s.active !== lastActive || force) {
     lastActive = s.active;
-    if (s.active >= 0 && net.follow) net.focus(s.active);
+    if (s.active >= 0 && net.follow && !zen) net.focus(s.active);
     drawGraph(s.active, s.dir);
   }
   drawTimeline();
-  $('play').textContent = timeline.playing ? '⏸' : '▶';
+  if (zen) {
+    const n = timeline.steps.length || 1, fe = timeline.forwardEnd, t = timeline.t;
+    ($('zen-progress').querySelector('.f') as HTMLElement).style.width = `${(100 * Math.min(t, fe)) / n}%`;
+    const b = $('zen-progress').querySelector('.b') as HTMLElement;
+    b.style.left = `${(100 * fe) / n}%`;
+    b.style.width = `${(100 * Math.max(0, t - fe)) / n}%`;
+  }
+  $('play').textContent = timeline.playing && timeline.stopAt === null ? '⏸' : '▶';
 }
 
 function drawGraph(active: number, dir: 'fwd' | 'bwd') {
@@ -109,7 +128,7 @@ function drawGraph(active: number, dir: 'fwd' | 'bwd') {
   const h = hover && hover.kind === 'op' ? rowTarget(hover.index, hover.row) : null;
   graph.render({ op: done ? -1 : active, dir, forces: done || (dir === 'bwd' && timeline.t >= timeline.steps.length - 1), attention, hover: h });
   const space = op?.kind ? pass.trace.rows[op.kind] : undefined;
-  const what = !op || done ? `<b>Forces</b> −∂E/∂r on every atom (arrows), atoms by element. Click an atom to follow it through the network.`
+  const what = !op || done ? `<b>Forces</b> on every atom (arrows), atoms by element. Click an atom to follow it through the network.`
     : attention ? `<b>Attention</b> of atom ${label(pass.trace.selected)} to its neighbours (mean over heads): the selected atom's edges are coloured by weight.`
     : space ? `<b>${opTitle(active)}</b>: ${dir === 'bwd' ? 'gradient' : 'value'} magnitude (RMS over features) of every ${space.label}${space.atom || space.edge ? '' : ', averaged onto its atom'}.`
     : `<b>${opTitle(active)}</b> has no per-atom or per-edge rows.`;
@@ -180,7 +199,22 @@ net.onClick = (h) => {
 };
 net.onUserCamera = () => $('follow').classList.remove('on');
 
-net.onFrame = (dt) => { if (timeline.advance(dt)) refresh(); };
+net.onFrame = (dt) => {
+  if (zen && scrubTo !== null) {
+    // ease towards the scrolled-to position, then hand back to the loop after a pause
+    timeline.seek(timeline.t + (scrubTo - timeline.t) * (1 - Math.exp(-dt * 10)));
+    if (Math.abs(scrubTo - timeline.t) < 1e-3) timeline.seek(scrubTo);
+    refresh();
+    if (performance.now() - lastScrub > 5000) { scrubTo = null; timeline.playing = true; }
+    return;
+  }
+  if (zen && timeline.done) {
+    // hold the finished pass for a moment, then go again
+    zenPause += dt;
+    if (zenPause > 1.5) { zenPause = 0; timeline.seek(0); timeline.playing = true; }
+  }
+  if (timeline.advance(dt)) refresh();
+};
 
 // ------------------------------------------------------------------ transport
 const speedOf = (x: number) => Math.round(Math.exp(Math.log(1) + x * (Math.log(120) - Math.log(1))) * 10) / 10;
@@ -190,7 +224,15 @@ const setSpeed = () => {
 };
 $('speed').addEventListener('input', setSpeed);
 setSpeed();
-const play = () => { if (timeline.done) timeline.seek(0); timeline.playing = !timeline.playing; refresh(); };
+const play = () => {
+  if (timeline.done) timeline.seek(0);
+  const free = timeline.playing && timeline.stopAt === null;
+  timeline.stopAt = null;
+  timeline.playing = !free;
+  if (!free) follow();
+  refresh();
+};
+$('continue').onclick = continueStep;
 $('play').onclick = play;
 $('restart').onclick = () => { timeline.seek(0); refresh(true); };
 $('end').onclick = () => { timeline.playing = false; timeline.seek(timeline.steps.length); refresh(true); };
@@ -198,9 +240,39 @@ $('prev').onclick = () => { timeline.playing = false; timeline.seek(Math.ceil(ti
 $('next').onclick = () => { timeline.playing = false; timeline.seek(Math.floor(timeline.t) + 1); refresh(); };
 $('follow').onclick = () => { net.follow = !net.follow; $('follow').classList.toggle('on', net.follow); if (net.follow && lastActive >= 0) net.focus(lastActive); };
 $('overview').onclick = () => { net.overview(); $('follow').classList.remove('on'); };
+
+// zen: full screen, no text, the pass on a loop
+let zen = false, zenPause = 0, speedBeforeZen = 6;
+function setZen(on: boolean) {
+  zen = on;
+  scrubTo = null;
+  document.body.classList.toggle('zen', on);
+  $('zen').classList.toggle('on', on);
+  net.follow = true;
+  $('follow').classList.add('on');
+  if (on) { speedBeforeZen = timeline.speed; timeline.speed = Math.max(timeline.speed, 24); if (timeline.done) timeline.seek(0); timeline.stopAt = null; timeline.playing = true; }
+  else { timeline.speed = speedBeforeZen; }
+  net.setZen(on);
+}
+$('zen').onclick = () => setZen(!zen);
+
+// in zen the wheel scrubs through the pass (ctrl + wheel, i.e. a pinch, still zooms)
+let scrubTo: number | null = null, lastScrub = 0;
+$('net').addEventListener('wheel', (e) => {
+  if (!zen || e.ctrlKey) return;
+  e.preventDefault();
+  e.stopPropagation(); // keep it from the camera controls
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+  scrubTo = Math.max(0, Math.min((scrubTo ?? timeline.t) + (e.deltaY * unit) / 40, timeline.steps.length));
+  lastScrub = performance.now();
+  timeline.playing = false;
+  zenPause = 0;
+}, { capture: true, passive: false });
 window.addEventListener('keydown', (e: KeyboardEvent) => {
   if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
-  if (e.key === ' ') { e.preventDefault(); play(); }
+  if (e.key === 'Escape' && zen) setZen(false);
+  if (zen && e.key === ' ') { e.preventDefault(); scrubTo = null; timeline.playing = !timeline.playing; return; }
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (timeline.playing) { timeline.playing = false; refresh(); } else continueStep(); }
   if (e.key === 'ArrowRight') $('next').click();
   if (e.key === 'ArrowLeft') $('prev').click();
   if (e.key === 'Home') $('restart').click();
@@ -222,7 +294,7 @@ function drawTimeline() {
   g.fillStyle = '#7a4a12'; g.fillRect(0, 10, x(Math.min(timeline.t, fe)), 14);
   if (timeline.t > fe) { g.fillStyle = '#4c2a78'; g.fillRect(x(fe), 10, x(timeline.t) - x(fe), 14); }
   g.fillStyle = '#3a4256';
-  for (const c of chapters) { const cx = c.mod ? x(c.first) : x(fe); g.fillRect(cx, 6, 1, 22); }
+  for (const k of stepStart) g.fillRect(x(k), 8, 1, 18);
   g.fillStyle = '#fff'; g.fillRect(x(timeline.t) - 1, 4, 2, 26);
   g.fillStyle = '#8a93a6'; g.font = '10px system-ui';
   g.fillText('forward', 4, 8); g.fillText('backward', x(fe) + 4, 8);
@@ -249,6 +321,7 @@ const setSystem = (s: System, restart = true) => {
   if (restart) { timeline.seek(0); autoplay = true; }
   evaluate();
 };
+$<HTMLSelectElement>('force-mode').onchange = () => { autoplay = true; timeline.seek(0); evaluate(); };
 structSel.onchange = () => { selected = 0; setSystem(PRESETS[structSel.value]); };
 $<HTMLInputElement>('xyz-file').onchange = async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0];
@@ -260,7 +333,7 @@ $('rattle').onclick = () => {
   setSystem({ ...system, positions: system.positions.map((p) => p.map((x) => x + 0.06 * (Math.random() * 2 - 1))) }, false);
 };
 
-// models/index.json: [{ name, kind, label, files: [json, weights] }]; weights may be absent (e.g. KRR)
+// models/index.json: [{ name, kind, label, meta, weights }]; weights may be absent (e.g. KRR)
 interface ModelEntry { name: string; kind: ModelKind; label?: string; meta?: string; weights?: string }
 const modelSel = $<HTMLSelectElement>('model');
 let entries: ModelEntry[] = [];
@@ -304,10 +377,17 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     listModels();
   } else if (m.type === 'model') {
     meta = m.meta;
+    hasNC = m.hasNC;
     const u = (ui = UIS[m.kind]!);
     net.describe = u.describe;
     net.rootTitle = u.name;
     net.collapsed.clear();
+    $('zen-params').textContent = m.nParams.toLocaleString('en-US');
+    const fm = $<HTMLSelectElement>('force-mode');
+    for (const o of fm.options) if (o.value !== 'conservative') o.disabled = !m.hasNC;
+    if (!m.hasNC) fm.value = 'conservative';
+    fm.title = m.hasNC ? '' : 'This model has no direct-force head';
+    $('intro-text').innerHTML = u.intro?.(m.meta) ?? `<h1>${u.name}, step by step</h1>`;
     $('model-card').innerHTML = u.card(m.meta, m.nParams, m.label);
     timeline.seek(0);
     autoplay = true;
@@ -325,15 +405,23 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     net.show(ops, p.trace);
     if (fresh && ui?.collapse && net.root) net.setCollapsed([...walk(net.root)].filter(ui.collapse).map((x) => x.id));
     if (fresh) buildChapters();
+    renderArticle();
     graph.setPass(p, ops);
     const ms = p.trace.ms;
     status(`<b>E = ${p.energy.toFixed(4)} eV</b> · ${p.numbers.length} atoms, ${p.trace.graph.center.length} ${p.trace.graph.label} edges · ` +
-      `forward ${ms.forward.toFixed(1)} ms · backward ${ms.backward.toFixed(1)} ms<br>${backend}`);
-    const Fmax = Math.max(...Array.from({ length: p.numbers.length }, (_, i) => Math.hypot(p.forces[3 * i], p.forces[3 * i + 1], p.forces[3 * i + 2])));
-    $('energies').innerHTML = `selected ${label(selected)}: ε = <b>${p.energies[selected].toFixed(4)}</b> eV · ` +
-      `|F| = <b>${Math.hypot(p.forces[3 * selected], p.forces[3 * selected + 1], p.forces[3 * selected + 2]).toFixed(3)}</b> eV/Å · max |F| ${Fmax.toFixed(3)} eV/Å`;
+      `forward ${ms.forward.toFixed(1)} ms${p.forces ? ` · backward ${ms.backward.toFixed(1)} ms` : ' · no backward pass'}<br>${backend}`);
+    const norm3 = (F: Float32Array, i: number) => Math.hypot(F[3 * i], F[3 * i + 1], F[3 * i + 2]);
+    const a = selected, parts = [`selected ${label(a)}: ε = <b>${p.energies[a].toFixed(4)}</b> eV`];
+    if (p.forces) parts.push(`<span class="fc">|F| = <b>${norm3(p.forces, a).toFixed(3)}</b></span>`);
+    if (p.ncForces) parts.push(`<span class="fnc">|F<sub>direct</sub>| = <b>${norm3(p.ncForces, a).toFixed(3)}</b></span>`);
+    if (p.forces && p.ncForces) {
+      let s2 = 0;
+      for (let k = 0; k < p.forces.length; k++) s2 += (p.forces[k] - p.ncForces[k]) ** 2;
+      parts.push(`RMS(F − F<sub>direct</sub>) = <b>${Math.sqrt(s2 / p.forces.length).toFixed(3)}</b> eV/Å`);
+    }
+    $('energies').innerHTML = parts.join(' · ');
     lastActive = -2;
-    if (autoplay) { autoplay = false; timeline.seek(0); timeline.playing = true; }
+    if (autoplay) { autoplay = false; timeline.seek(0); continueStep(); }
     refresh(true);
     if (queued) { queued = false; evaluate(); }
   } else if (m.type === 'progress') {
@@ -345,6 +433,6 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   }
 };
 // handy from the console
-(window as any).mlipviz = { net, graph, timeline, get pass() { return pass; }, get ops() { return ops; }, get chapters() { return chapters; } };
+(window as any).mlipviz = { net, graph, timeline, get pass() { return pass; }, get ops() { return ops; }, get steps() { return steps; } };
 
 send({ type: 'init', backend: new URLSearchParams(location.search).get('backend') as any ?? 'auto' });

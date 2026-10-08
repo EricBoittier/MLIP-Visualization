@@ -32,14 +32,37 @@ header label { color: var(--muted); display: flex; gap: 6px; align-items: center
 #status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 13px; }
 #status b { color: var(--text); font-weight: 600; }
 
-main { display: grid; grid-template-columns: 330px 1fr 420px; min-height: 0; }
-#walk { border-right: 1px solid var(--line); background: var(--panel); padding: 16px 18px; overflow-y: auto; }
+main { display: grid; grid-template-columns: 410px 1fr 400px; min-height: 0; }
+#walk { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; scroll-behavior: smooth; }
+#chapter-head { position: sticky; top: 0; z-index: 2; background: rgba(18, 21, 28, 0.96); backdrop-filter: blur(4px);
+  padding: 8px 20px; border-bottom: 1px solid var(--line); }
+#intro { padding: 16px 20px 4px; color: #c3c9d5; }
+#intro h1 { font-size: 22px; margin: 0 0 8px; color: #eef0f4; }
+#intro p { margin: 0 0 10px; }
+#intro figure { margin: 12px 0; }
+#intro figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.keys { font-size: 12px; color: var(--muted); }
+kbd { font: 11px ui-monospace, monospace; background: #1f2430; border: 1px solid #343b4c; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--text); }
+#article { padding: 0 20px 60vh; }
+#article h2.sec { font-size: 15px; margin: 28px 0 6px; color: var(--c); border-left: 3px solid var(--c); padding-left: 9px; line-height: 1.35; }
+#article h2.sec span { color: #7d8698; font-weight: 500; }
+#article h2.sec.bwd { --c: var(--grad); }
+#article .lead { color: #9aa3b5; font-size: 13.5px; }
+#article .lead p { margin: 0 0 8px; }
+#article p.step { margin: 4px 0; padding: 6px 10px 6px 11px; border-radius: 6px; cursor: pointer; opacity: 0.5;
+  border-left: 2px solid transparent; transition: opacity 0.25s, background 0.25s; }
+#article p.step:hover { opacity: 0.85; }
+#article p.step.on { opacity: 1; background: #1b202c; border-left-color: var(--c); }
+#article p.step.bwd.on { border-left-color: var(--grad); }
+#article .dim { color: #7d8698; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#article b.atom { color: #fff; background: #2a3040; padding: 0 4px; border-radius: 3px; font-weight: 600; }
+button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+button.primary:hover { filter: brightness(1.1); }
 #chapter-phase { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--value); }
 #chapter-phase.bwd { color: var(--grad); }
-#chapter-title { margin: 2px 0 8px; font-size: 17px; line-height: 1.35; }
-#chapter-text { color: #c3c9d5; min-height: 96px; }
-#chapter-text p { margin: 0 0 10px; }
-#chapter-text .g { color: var(--grad); }
+#chapter-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
+#article .g { color: var(--grad); }
+#article .tag { font-weight: 650; margin-right: 2px; }
 #chapter-title i { color: #5c6578; font-style: normal; }
 #diagram { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
 #diagram svg { display: block; overflow: visible; font-family: inherit; }
@@ -56,7 +79,7 @@ main { display: grid; grid-template-columns: 330px 1fr 420px; min-height: 0; }
 #diagram .back-t { font-size: 10px; fill: #a855f7; text-anchor: middle; }
 #diagram .io { fill: #1a1e28; stroke: #3a4256; }
 #diagram .io-t { font-size: 11px; fill: #c3c9d5; text-anchor: middle; }
-#model-card { margin-top: 18px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+#model-card { margin: 0 20px 20px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
 #model-card code { color: var(--text); }
 
 #net { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
@@ -87,6 +110,8 @@ main { display: grid; grid-template-columns: 330px 1fr 420px; min-height: 0; }
 #graph-caption b { color: var(--text); }
 #energies { padding: 6px 12px 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 #energies b { color: var(--text); }
+#energies .fc b { color: #a78bfa; }
+#energies .fnc b { color: #a3e635; }
 
 footer { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--panel); }
 footer button { min-width: 38px; }
@@ -101,3 +126,19 @@ footer button { min-width: 38px; }
   #walk { order: 3; border: 0; }
   #right { order: 2; }
 }
+
+/* zen: the network alone, forward and backward on a loop */
+#zen-count, #zen-progress { display: none; }
+body.zen { grid-template-rows: 1fr; }
+body.zen header, body.zen footer, body.zen #walk, body.zen #right, body.zen #legend, body.zen #tooltip,
+body.zen #net-buttons > :not(#zen) { display: none !important; }
+body.zen main { grid-template-columns: 1fr !important; grid-template-rows: 1fr !important; }
+body.zen #net-buttons { opacity: 0.25; transition: opacity 0.3s; }
+body.zen #net-buttons:hover { opacity: 1; }
+body.zen #zen-count { display: flex; flex-direction: column; position: absolute; left: 28px; bottom: 22px; pointer-events: none;
+  font-weight: 200; font-size: 44px; letter-spacing: 0.02em; color: #e6e9ef; font-variant-numeric: tabular-nums; line-height: 1; }
+body.zen #zen-count small { font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; color: #6f788b; margin-top: 8px; font-weight: 400; }
+body.zen #zen-progress { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #161a22; }
+body.zen #zen-progress i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; }
+body.zen #zen-progress .f { background: var(--value); }
+body.zen #zen-progress .b { background: var(--grad); }

@@ -10,13 +10,13 @@ export const MOD_COLOR: Record<string, string> = {
   root: '#94a3b8', other: '#94a3b8',
   // geometry and descriptors
   geometry: '#2dd4bf', adaptive: '#22d3ee', cutoff: '#38bdf8', descriptor: '#2dd4bf', radial: '#22d3ee',
-  angular: '#a3e635', density: '#22d3ee', spectrum: '#a3e635', rbf: '#22d3ee',
+  angular: '#84cc16', density: '#22d3ee', spectrum: '#a3e635', rbf: '#22d3ee',
   // learned representations
   embedding: '#f472b6', gnn: '#94a3b8', edge_tokens: '#fb923c', transformer: '#818cf8', tokens: '#c084fc',
   attention: '#facc15', mlp: '#4ade80', node_update: '#a78bfa', message: '#60a5fa', interaction: '#60a5fa',
   residual: '#4ade80', network: '#818cf8', kernel: '#facc15', regression: '#fb923c',
   // outputs
-  readout: '#f87171', head: '#fca5a5', energy: '#fb7185', charges: '#f0abfc', electrostatics: '#e879f9',
+  readout: '#f87171', head: '#fca5a5', energy: '#fb7185', ncforce: '#a3e635', charges: '#f0abfc', electrostatics: '#e879f9',
 };
 
 export interface ModDesc { type: ModType; title: string; short?: string }

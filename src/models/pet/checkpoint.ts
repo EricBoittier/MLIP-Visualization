@@ -39,6 +39,8 @@ export interface ModelMeta {
   atomic_types: number[];
   species_to_index: number[];
   composition_energies: number[];
+  /** Direct (non-conservative) force heads, if the converter kept them. */
+  non_conservative?: Record<string, { scale: number[] }>;
 }
 
 export interface Checkpoint {

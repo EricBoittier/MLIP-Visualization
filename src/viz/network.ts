@@ -25,7 +25,7 @@ precision highp float;
 uniform sampler2D uVal;
 uniform sampler2D uGrad;
 uniform vec2 uDims;
-uniform float uVScale, uGScale, uReveal, uGReveal, uActive, uKind, uHasGrad, uHiRow;
+uniform float uVScale, uGScale, uReveal, uGReveal, uActive, uKind, uHasGrad, uHiRow, uCellPx;
 varying vec2 vUv;
 varying vec3 vN;
 vec3 diverge(float t, vec3 neg, vec3 pos) {
@@ -52,7 +52,7 @@ void main() {
     col = diverge(gv, ${glslVec(PALETTE.grad.neg)}, ${glslVec(PALETTE.grad.pos)});
   }
   float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
-  col *= mix(0.5, 1.0, smoothstep(0.03, 0.15, e));
+  col *= mix(mix(0.5, 1.0, smoothstep(0.03, 0.15, e)), 1.0, 1.0 - smoothstep(2.5, 6.0, uCellPx));
   if (abs(row - uHiRow) < 0.5) col = mix(col, vec3(1.0), 0.35);
   if (abs(vN.z) < 0.5) col *= 0.55;
   col += uActive * vec3(0.12, 0.13, 0.18);
@@ -84,6 +84,9 @@ interface FrameObj {
 }
 
 interface Label { text: Text; size: number; maxPx: number }
+
+/** On-screen size of one cell, shared by every block's material. */
+const CELL_PX = { value: 10 };
 
 const EMPTY = new THREE.DataTexture(new Float32Array(1), 1, 1, THREE.RedFormat, THREE.FloatType);
 EMPTY.needsUpdate = true;
@@ -140,6 +143,8 @@ export class NetworkView {
   describe: Describe = () => null;
   rootTitle = '';
   follow = true;
+  zen = false;
+  private zenTime = 0;
   private want = new THREE.Vector3();
   private wantDist = 120;
   private ray = new THREE.Raycaster();
@@ -219,6 +224,7 @@ export class NetworkView {
       this.onFrame?.(dt);
       this.animate(dt);
       this.controls.update();
+      CELL_PX.value = this.pxPerUnit(Math.max(this.camera.position.distanceTo(this.controls.target), 1));
       this.updateLabels();
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(loop);
@@ -226,12 +232,14 @@ export class NetworkView {
     requestAnimationFrame(loop);
   }
 
+  private layoutAspect = 0;
   private resize() {
     const { clientWidth: w, clientHeight: h } = this.el;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    if (this.root && Math.abs(Math.log(this.camera.aspect / (this.layoutAspect || 1))) > 0.25) this.relayout(false);
   }
 
   private pxPerUnit(dist: number) {
@@ -301,6 +309,7 @@ export class NetworkView {
           uVScale: { value: kind === 'head' ? 1 : t.absmax || 1 }, uGScale: { value: g?.absmax || 1 },
           uReveal: { value: 0 }, uGReveal: { value: 0 }, uActive: { value: 0 },
           uKind: { value: kind === 'weight' ? 1 : kind === 'head' ? 2 : 0 }, uHasGrad: { value: g ? 1 : 0 }, uHiRow: { value: -1 },
+          uCellPx: CELL_PX,
         },
       });
       const mesh = new THREE.Mesh(BOX, mat);
@@ -366,7 +375,8 @@ export class NetworkView {
   private relayout(now: boolean) {
     if (!this.root || !this.trace) return;
     const aspect = Math.max(this.camera.aspect, 0.6);
-    const lay = (this.lay = layout(this.root, this.ops, this.trace, this.collapsed, aspect));
+    this.layoutAspect = this.camera.aspect;
+    const lay = (this.lay = layout(this.root, this.ops, this.trace, this.zen ? new Set() : this.collapsed, aspect, this.zen));
     const place = (o: THREE.Object3D, r: Rect, z: number, d = 1) => this.moveTo(o, r.x + r.w / 2, -(r.y + r.h / 2), z, r.w, r.h, d, now);
     for (const b of this.blocks) {
       const c = lay.cards[b.op];
@@ -376,17 +386,18 @@ export class NetworkView {
     }
     this.opLabels.forEach((t, i) => {
       const c = lay.cards[i];
-      t.visible = c.visible;
+      t.visible = c.visible && !this.zen;
       this.moveTo(t, c.rect.x, -c.rect.y - 0.4, 0.8, 1, 1, 1, now);
     });
     for (const f of this.frames.values()) {
       const fr = lay.frames.get(f.mod.id)!;
       f.group.visible = fr.visible;
-      f.title.visible = fr.visible;
+      f.title.visible = fr.visible && !this.zen;
+      f.border.visible = !this.zen;
       const r = fr.rect, z = -1 - 0.05 * f.mod.depth;
       this.moveTo(f.fill, r.x + r.w / 2, -(r.y + r.h / 2), z, r.w, r.h, 1, now);
       this.moveTo(f.border, r.x + r.w / 2, -(r.y + r.h / 2), z + 0.01, r.w, r.h, 1, now);
-      (f.fill.material as THREE.MeshBasicMaterial).opacity = fr.collapsed ? 0.22 : 0.07 + 0.02 * Math.min(f.mod.depth, 3);
+      (f.fill.material as THREE.MeshBasicMaterial).opacity = this.zen ? 0.035 : fr.collapsed ? 0.22 : 0.07 + 0.02 * Math.min(f.mod.depth, 3);
       f.bar.visible = fr.collapsed;
       this.moveTo(f.bar, r.x + 1.5, -(r.y + r.h - 2), z + 0.02, 0.001, 1, 1, now);
       f.title.fontSize = fr.title;
@@ -400,7 +411,18 @@ export class NetworkView {
   }
 
   private animate(dt: number) {
-    if (this.follow) {
+    if (this.zen && this.follow && this.lay) {
+      // a slow sway around the overview, for depth
+      this.zenTime += dt;
+      const { w, h } = this.lay.bounds, t = this.zenTime;
+      const yaw = 0.22 * Math.sin(t * 0.11), pitch = 0.12 * Math.sin(t * 0.07 + 1);
+      const fit = Math.max(h * 1.25, (w * 1.2) / this.camera.aspect) / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)));
+      const dist = (this.wantDist = THREE.MathUtils.lerp(this.wantDist, fit, 1 - Math.exp(-dt * 3)));
+      this.want.set(w / 2, -h / 2 - 0.06 * h, 0); // leave room for the parameter count
+      const target = this.controls.target.lerp(this.want, 1 - Math.exp(-dt * 2));
+      this.camera.position.set(target.x + dist * Math.sin(yaw), target.y + dist * Math.sin(pitch), target.z + dist * Math.cos(yaw) * Math.cos(pitch));
+      this.camera.lookAt(target);
+    } else if (this.follow) {
       const k = 1 - Math.exp(-dt * 3.5);
       const t = this.controls.target, cam = this.camera.position;
       const dir = cam.clone().sub(t).normalize();
@@ -452,6 +474,7 @@ export class NetworkView {
     const colors = new Float32Array(pts.length);
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const line = new THREE.LineSegments(geo, this.links?.line.material ?? new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 }));
+    line.visible = !this.zen;
     this.world.add(line);
     this.links = { line, colors, spans };
     this.colorLinks();
@@ -517,6 +540,14 @@ export class NetworkView {
     }
   }
 
+  /** Zen mode: no text, no links, blocks packed tight, the whole network in view, slowly drifting. */
+  setZen(on: boolean) {
+    this.zen = on;
+    this.relayout(false);
+    this.overview();
+    if (on) this.zenTime = 0;
+  }
+
   /** Frame a whole module. */
   focusModule(id: string) {
     const f = this.lay?.frames.get(id);
@@ -539,10 +570,9 @@ export class NetworkView {
   private updateLabels() {
     const cam = this.camera.position;
     for (const l of this.labels) {
-      if (!l.text.visible && l.text.parent) { /* hidden by layout */ }
       const d = Math.max(cam.distanceTo(l.text.position), 1);
       const px = l.size * this.pxPerUnit(d);
-      const a = THREE.MathUtils.smoothstep(px, 6, 11) * (1 - THREE.MathUtils.smoothstep(px, l.maxPx, l.maxPx * 1.6));
+      const a = THREE.MathUtils.smoothstep(px, 4, 8) * (1 - THREE.MathUtils.smoothstep(px, l.maxPx, l.maxPx * 1.6));
       (l.text as any).fillOpacity = a;
       (l.text as any).material.visible = a > 0.02;
     }

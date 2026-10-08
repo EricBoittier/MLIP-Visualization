@@ -46,7 +46,9 @@ export interface Pass {
   numbers: number[];
   energy: number;
   energies: Float32Array;
-  forces: Float32Array;
+  mode: ForceMode;
+  forces?: Float32Array; // conservative, -dE/dr
+  ncForces?: Float32Array; // direct head
   stress?: number[][];
   trace: Trace;
 }
@@ -55,11 +57,14 @@ export type ToWorker =
   | { type: 'init'; backend: 'webgpu' | 'cpu' | 'auto' }
   | { type: 'loadModel'; id: string; kind: ModelKind; meta: any; weights: ArrayBuffer | null; label: string }
   | { type: 'use'; id: string }
-  | { type: 'evaluate'; system: System; selected: number };
+  | { type: 'evaluate'; system: System; selected: number; mode: ForceMode };
+
+/** conservative: -dE/dr by backprop; direct: the model's direct force head, no backward pass; both. */
+export type ForceMode = 'conservative' | 'direct' | 'both';
 
 export type FromWorker =
   | { type: 'ready'; backend: string; adapter: string }
-  | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number }
+  | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number; hasNC: boolean }
   | { type: 'pass'; pass: Pass }
   | { type: 'progress'; text: string }
   | { type: 'error'; text: string };

@@ -33,7 +33,7 @@ export function topology(g: Graph, model: Model): OpInfo[] {
     kind: n.out.kind,
     inputs: n.inputs.filter((t) => !paramName.has(t.id)).map((t) => producer.get(t.id) ?? -1),
     params: n.inputs.filter((t) => paramName.has(t.id)).map((t) => paramName.get(t.id)!),
-    grad: !!n.backward,
+    grad: !!n.out.grad, // received a gradient in the backward pass
   }));
 }
 

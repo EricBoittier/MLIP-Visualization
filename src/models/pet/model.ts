@@ -66,7 +66,10 @@ export class PET implements Model {
 
   prepare(sys: System) { return prepare(sys, this.h, this.meta.species_to_index); }
 
-  forward(g: Graph, sys: System, opts: { forces?: boolean; prepared?: Prepared } = {}): Output {
+  get hasNC() { return !!this.meta.non_conservative?.non_conservative_force; }
+
+  /** `forces`: positions take part in the backward pass; `nc`: also run the direct force head. */
+  forward(g: Graph, sys: System, opts: { forces?: boolean; nc?: boolean; prepared?: Prepared } = {}): Output {
     const h = this.h, be = this.be;
     const P = opts.prepared ?? this.prepare(sys);
     const { N } = P, E = P.keep.length, Eraw = P.raw.center.length;
@@ -121,7 +124,7 @@ export class PET implements Model {
         return g.unary('clamp', a, h.cutoff / 16, h.cutoff);
       });
       const keep = ix(P.keep, Eraw, 'edge', 'raw_edge');
-      const pairC = g.scale(g.add(g.gather(atomic, ix(P.center, N, 'edge', 'atom'), 'r_i'), g.gather(atomic, ix(P.neighbor, N, 'edge', 'atom'), 'r_j')), 0.5);
+      const pairC = g.scale(g.add(g.gather(atomic, ix(P.center, N, 'edge', 'atom'), 'cutoff_i'), g.gather(atomic, ix(P.neighbor, N, 'edge', 'atom'), 'cutoff_j')), 0.5);
       return { edgeVectors: vRaw, kept: g.gather(vRaw, keep, 'keep'), pair: pairC };
     });
 
@@ -235,15 +238,15 @@ export class PET implements Model {
       }
     }
 
-    // ---- readout
+    // ---- readout: node and edge heads per readout layer, edge terms weighted by f_c
     const centers = ix(P.center, N, 'edge', 'atom');
-    const perAtomNet = g.scope('readout', () => {
+    const readout = (target: string) => {
       let total: Tensor | null = null;
       nodeFeats.forEach((nf, i) => {
         const head = (x: Tensor, kind: 'node' | 'edge') => g.scope(`${kind}_head.${i}`, () => {
-          const pre = `${kind}_heads.energy.${i}`;
+          const pre = `${kind}_heads.${target}.${i}`;
           const z = g.silu(lin(g.silu(lin(x, `${pre}.0`)), `${pre}.2`));
-          return lin(z, `${kind}_last_layers.energy.${i}.energy___0`);
+          return lin(z, `${kind}_last_layers.${target}.${i}.${target}___0`);
         });
         const nodePred = head(nf, 'node');
         const edgePred = g.segmentSum(g.mul(head(edgeFeats[i], 'edge'), cf), centers, 'sum_edges');
@@ -251,14 +254,26 @@ export class PET implements Model {
         total = total ? g.add(total, s) : s;
       });
       return total!;
-    });
+    };
+    const perAtomNet = g.scope('readout', () => readout('energy'));
+    let ncForces: Tensor | undefined;
+    if (opts.nc && this.hasNC) {
+      const scale = this.meta.non_conservative!.non_conservative_force.scale;
+      ncForces = g.scope('nc_forces', () => {
+        const F = g.mul(readout('non_conservative_force'), g.constant(Float32Array.from(P.species, (s) => scale[s]), [N], 'scale', 'atom'));
+        // remove the net force (as metatomic does): F_i - mean_j F_j
+        const all = g.index(new Int32Array(N), 1, { src: 'atom' });
+        const mean = g.scale(g.segmentSum(F, all, 'net_force'), 1 / N);
+        return g.sub(F, g.gather(mean, all, 'mean_force'));
+      });
+    }
     const comp = Float32Array.from(P.species, (s) => this.meta.composition_energies[s]);
     const perAtom = g.scope('energy', () =>
       g.add(g.scale(g.sumRows(perAtomNet), this.meta.energy_scale), g.constant(comp, [N], 'composition', 'atom')));
     const energy = g.scope('energy', () => g.sumAll(perAtom, 'total_energy'));
     const graph = { center: P.center, neighbor: P.neighbor, label: 'neighbour',
                     shift: Float32Array.from({ length: 3 * E }, (_, k) => P.raw.shiftVec[3 * P.keep[(k / 3) | 0] + (k % 3)]) };
-    return { energy, perAtom, positions, edgeVectors, virialVectors: edgeVectors, cutoffFactors: cf, attention,
+    return { energy, ncForces, perAtom, positions, edgeVectors, virialVectors: edgeVectors, cutoffFactors: cf, attention,
              prepared: P, layout, graph, rows: petRows(P) };
   }
 

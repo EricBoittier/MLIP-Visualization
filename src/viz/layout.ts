@@ -29,7 +29,11 @@ export const titleSize = (depth: number) => [8, 6, 3.2, 2.2, 1.7][Math.min(depth
 const PAD = 2.5;
 const gap = (depth: number) => (depth === 0 ? 12 : 3);
 
-export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<string>, aspect: number): Layout {
+/** `compact`: zen mode, no text rows and the blocks packed close together. */
+export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<string>, aspect: number, compact = false): Layout {
+  const LBL = compact ? 0 : LABEL, PADc = compact ? 0.8 : PAD, SEP = compact ? 0.7 : 1.5;
+  const gapOf = (depth: number) => (compact ? (depth === 0 ? 3 : 1) : gap(depth));
+  const band = (title: number) => (compact ? 0 : title * 1.8);
   const cards: Card[] = new Array(ops.length);
   const frames = new Map<string, Frame>();
   const attn = new Map(trace.attention.map((a) => [a.op, a]));
@@ -38,22 +42,22 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
   const card = (i: number): Card => {
     const t = trace.values[i]!;
     const bw = Math.max(t.cols, 1), bh = Math.max(t.rows, 1);
-    const H = Math.min(Math.max(bh, 8), 32);
+    const H = compact ? bh : Math.min(Math.max(bh, 8), 32);
     let x = 0;
     const weights = ops[i].params.flatMap((name) => {
       const p = trace.params?.[name]?.value;
       if (!p) return [];
-      const s = Math.min(1, H / p.rows), w = Math.min(p.cols * s, 64), r = { x, y: LABEL, w, h: p.rows * s };
-      x += w + 1.5;
+      const s = Math.min(1, H / p.rows), w = Math.min(p.cols * s, 64), r = { x, y: LBL, w, h: p.rows * s };
+      x += w + SEP;
       return [{ name, rect: r }];
     });
-    const block = { x, y: LABEL, w: bw, h: bh };
+    const block = { x, y: LBL, w: bw, h: bh };
     x += bw;
     const a = attn.get(i);
-    const heads = a ? Array.from({ length: a.heads }, (_, hd) => ({ head: hd, rect: { x: x + 3 + hd * (a.n + 1.5), y: LABEL, w: a.n, h: a.n } })) : [];
-    if (a) x += 3 + a.heads * (a.n + 1.5);
-    const h = LABEL + Math.max(bh, ...weights.map((w) => w.rect.h), ...heads.map((q) => q.rect.h));
-    return { op: i, rect: { x: 0, y: 0, w: Math.max(x, 8), h }, block, weights, heads, visible: true };
+    const heads = a ? Array.from({ length: a.heads }, (_, hd) => ({ head: hd, rect: { x: x + 2 * SEP + hd * (a.n + SEP), y: LBL, w: a.n, h: a.n } })) : [];
+    if (a) x += 2 * SEP + a.heads * (a.n + SEP);
+    const h = LBL + Math.max(bh, ...weights.map((w) => w.rect.h), ...heads.map((q) => q.rect.h));
+    return { op: i, rect: { x: 0, y: 0, w: Math.max(x, compact ? 1 : 8), h }, block, weights, heads, visible: true };
   };
 
   type Sized = { w: number; h: number; place: (x: number, y: number, visible: boolean) => void };
@@ -66,11 +70,11 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
       const c = (cards[it.op] = card(it.op));
       return { w: c.rect.w, h: c.rect.h, place: (x, y, v) => { c.rect.x = x; c.rect.y = y; c.visible = v; } };
     });
-    const pad = m.depth ? PAD : 0, g = gap(m.depth);
-    let top = m.depth ? frame.title * 1.8 : 0;
+    const pad = m.depth ? PADc : 0, g = gapOf(m.depth);
+    let top = m.depth ? band(frame.title) : 0;
     if (isCollapsed) {
       frame.title = titleSize(m.depth) * 1.5;
-      top = frame.title * 1.8;
+      top = band(frame.title);
       const w = Math.max(24, m.title.length * frame.title * 0.62 + 2 * PAD), h = top + 5;
       return {
         w, h, place: (x, y, v) => {
@@ -80,20 +84,31 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
         },
       };
     }
-    // flow children into rows no wider than W
-    const area = kids.reduce((s, k) => s + (k.w + g) * (k.h + g), 0);
-    const W = Math.max(...kids.map((k) => k.w), Math.sqrt(area * (m.depth ? 2.4 : aspect)));
-    const rows: { items: Sized[]; h: number; w: number }[] = [];
-    for (const k of kids) {
-      const r = rows[rows.length - 1];
-      if (!r || r.w + g + k.w > W) rows.push({ items: [k], h: k.h, w: k.w });
-      else { r.items.push(k); r.w += g + k.w; r.h = Math.max(r.h, k.h); }
+    // flow children into rows: try a range of wrap widths, keep the tightest
+    const flow = (W: number) => {
+      const rows: { items: Sized[]; h: number; w: number }[] = [];
+      for (const k of kids) {
+        const r = rows[rows.length - 1];
+        if (!r || r.w + g + k.w > W) rows.push({ items: [k], h: k.h, w: k.w });
+        else { r.items.push(k); r.w += g + k.w; r.h = Math.max(r.h, k.h); }
+      }
+      return rows;
+    };
+    const target = m.depth ? 2.2 : aspect;
+    const wMin = Math.max(...kids.map((k) => k.w)), wMax = kids.reduce((s, k) => s + k.w + g, 0);
+    let rows = flow(wMin), best = Infinity;
+    for (let q = 0; q <= 24; q++) {
+      const W = wMin * (wMax / wMin) ** (q / 24);
+      const rr = flow(W);
+      const w = Math.max(...rr.map((r) => r.w)), h = rr.reduce((s, r) => s + r.h + g, 0);
+      const cost = w * h * (1 + 0.6 * Math.abs(Math.log(w / h / target)));
+      if (cost < best) { best = cost; rows = rr; }
     }
     // the title grows with the frame, so it reads whenever the frame fills the view
     const rowsW = Math.max(...rows.map((r) => r.w));
     frame.title = Math.min(Math.max(rowsW * 0.03, titleSize(m.depth)), 40);
-    top = m.depth ? frame.title * 1.8 : 0;
-    const inner = { w: Math.max(rowsW, m.title.length * frame.title * 0.62),
+    top = m.depth ? band(frame.title) : 0;
+    const inner = { w: compact ? rowsW : Math.max(rowsW, m.title.length * frame.title * 0.62),
                     h: rows.reduce((s, r) => s + r.h, 0) + g * Math.max(rows.length - 1, 0) };
     const w = inner.w + 2 * pad, h = inner.h + top + 2 * pad;
     return {
@@ -109,8 +124,10 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
       },
     };
   };
-  const s = size(root, true);
+  const flat: Mod = { ...root, items: ops.map((_, i) => ({ op: i })) };
+  const s = size(compact ? flat : root, true);
   s.place(0, 0, true);
+  if (compact) for (const m of walk(root)) { const f = frames.get(m.id); if (f) f.visible = false; else if (m.depth) frames.set(m.id, { mod: m, rect: { x: 0, y: 0, w: 0, h: 0 }, collapsed: false, visible: false, title: 0 }); }
 
   // ops hidden in a collapsed module are drawn at that module's box
   const hiddenBy = new Map<number, Rect>();

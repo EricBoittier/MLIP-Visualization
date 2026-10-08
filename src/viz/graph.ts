@@ -120,17 +120,20 @@ export class GraphView {
       graph: { kind: 'cylinders', parameters: { global: { vectors, bases, radii, colors } } },
     };
     let shapeList = 'graph';
-    if (s.forces) {
-      const F = p.forces, fmax = Math.max(...Array.from({ length: N }, (_, i) => Math.hypot(F[3 * i], F[3 * i + 1], F[3 * i + 2])), 1e-9);
+    // force arrows: conservative (violet) and direct (lime), on the same scale
+    const sets = [['forces', p.forces, '#7c3aed'], ['nc_forces', p.ncForces, '#65a30d']] as const;
+    const shown = s.forces ? sets.filter(([, F]) => F) : [];
+    const fmax = Math.max(1e-9, ...shown.flatMap(([, F]) => Array.from({ length: N }, (_, i) => Math.hypot(F![3 * i], F![3 * i + 1], F![3 * i + 2]))));
+    for (const [name, F, color] of shown) {
       const scale = 1.2 / fmax;
-      shapes.forces = {
+      shapes[name] = {
         kind: 'arrow',
         parameters: {
-          global: { baseRadius: 0.05, headRadius: 0.11, headLength: 0.2, color: '#7c3aed' },
-          atom: Array.from({ length: N }, (_, i) => ({ vector: [F[3 * i] * scale, F[3 * i + 1] * scale, F[3 * i + 2] * scale] })),
+          global: { baseRadius: 0.05, headRadius: 0.11, headLength: 0.2, color },
+          atom: Array.from({ length: N }, (_, i) => ({ vector: [F![3 * i] * scale, F![3 * i + 1] * scale, F![3 * i + 2] * scale] })),
         },
       };
-      shapeList += ',forces';
+      shapeList += `,${name}`;
     }
     const structure = {
       size: N,
@@ -143,7 +146,7 @@ export class GraphView {
     const props = {
       node: nodeProp.map((x, i) => (s.hover?.atom === i ? Math.max(...nodeProp) * 1.2 : x)),
       energy: Array.from(p.energies),
-      force: Array.from({ length: N }, (_, i) => Math.hypot(p.forces[3 * i], p.forces[3 * i + 1], p.forces[3 * i + 2])),
+      force: Array.from({ length: N }, (_, i) => { const F = p.forces ?? p.ncForces!; return Math.hypot(F[3 * i], F[3 * i + 1], F[3 * i + 2]); }),
     };
     this.viewer.load(structure as any, props, { keepOrientation: true });
     this.viewer.applySettings({

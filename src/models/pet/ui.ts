@@ -1,6 +1,7 @@
 // PET in the visualiser: module names, diagram subtitles, narration and model card.
 import { ancestors, type ModDesc, type Mod } from '../../viz/modules';
 import type { ModelUI } from '../ui';
+import { petBack, petStep } from './article';
 import type { Hypers, ModelMeta } from './checkpoint';
 
 function describe(seg: string, path: string): ModDesc | null {
@@ -13,7 +14,7 @@ function describe(seg: string, path: string): ModDesc | null {
     embedding: ['embedding', 'Embeddings'], edge_tokens: ['edge_tokens', 'Edge tokens'], tokens: ['tokens', 'Token sequences', 'Tokens'],
     attention: ['attention', 'Attention'], mlp: ['mlp', 'Feed-forward', 'FFN'], node_update: ['node_update', 'Atom update'],
     message_passing: ['message', 'Message passing'], readout: ['readout', 'Readout'], energy: ['energy', 'Energy'],
-    conditioning: ['embedding', 'Charge & spin'],
+    conditioning: ['embedding', 'Charge & spin'], nc_forces: ['ncforce', 'Direct forces'],
   };
   const d = named[seg];
   void path;
@@ -43,6 +44,7 @@ function subtitle(m: Mod, h: Hypers): string {
     case 'readout': return 'node + Σ f_c · edge';
     case 'head': return 'Linear–SiLU ×2 → 1';
     case 'energy': return 'Σ_i s·ε_i + E_Z';
+    case 'ncforce': return 'F_i predicted directly, no backprop';
     default: return '';
   }
 }
@@ -108,6 +110,14 @@ function narration(m: Mod | 'backward', h: Hypers): string {
       <p><b>Readout.</b> Node and edge heads (Linear–SiLU–Linear–SiLU) and a final linear layer give one number per
       atom and one per edge${h.featurizer_type === 'residual' ? ', for every GNN layer' : ''}. The edge numbers are
       weighted by <i>f</i><sub>c</sub> and summed onto their central atom.</p>`;
+    case 'ncforce': return `
+      <p><b>Direct (non-conservative) forces.</b> PET-MAD carries a second set of heads that read the same final features
+      and output a 3-vector per atom (node head) and per edge (edge head, weighted by <i>f</i><sub>c</sub> and summed onto
+      the centre atom). The result is scaled per element, and the mean is subtracted so the forces sum to zero.</p>
+      <p>This replaces the whole backward pass with a few small matrix products. The catch is that these forces are not the
+      derivative of any energy, so they are not conservative: molecular dynamics driven by them alone does not conserve
+      energy. A common remedy is multiple time stepping, which uses direct forces for most steps and corrects them with
+      conservative forces every few steps.</p>`;
     case 'energy': return `
       <p>Each per-atom number is scaled and shifted by a per-element reference energy, and the results are summed:
       <i>E</i> = Σ<sub>i</sub> (<i>s</i> ε<sub>i</sub> + <i>E</i><sub>Z<sub>i</sub></sub>). This ends the forward pass;
@@ -123,6 +133,15 @@ export const petUI: ModelUI = {
   describe,
   subtitle: (m, meta: ModelMeta) => subtitle(m, meta.hypers),
   narration: (m, meta: ModelMeta) => narration(m, meta.hypers) || (m !== 'backward' && m.parent ? narration(m.parent, meta.hypers) : ''),
+  step: petStep,
+  back: petBack,
+  intro: () => `<h1>PET, step by step</h1>
+    <p>PET, the <i>Point Edge Transformer</i>, predicts the energy of a structure from its atoms. Each atom looks
+    at its neighbours through a small transformer, a few message-passing layers share that information, and the
+    energy is a sum over atoms. Forces are the gradient of that energy with respect to the positions (or, with the
+    <i>direct</i> option of PET-MAD, predicted outright by extra heads).</p>
+    <p>Each operation's output is a block of numbers: rows are the selected atom's tokens, columns the features.
+    On the right, the structure is drawn as the graph PET actually uses. <b>Click an atom</b> to follow it.</p>`,
   card: (meta: ModelMeta, nParams, label) => {
     const h = meta.hypers;
     return `<b>${label}</b> · ${(nParams / 1e6).toFixed(2)} M parameters<br>

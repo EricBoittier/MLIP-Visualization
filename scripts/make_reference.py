@@ -55,6 +55,8 @@ def main():
         warnings.filterwarnings("ignore")
         model = load_model(download_upet_checkpoint(args.model, args.version)).export()
         calc = MetatomicCalculator(model, device="cpu", non_conservative=False)
+        has_nc = "non_conservative_force" in model.capabilities().outputs
+        nc_calc = MetatomicCalculator(model, device="cpu", non_conservative=True) if has_nc else None
 
     label = args.label or args.model
     out = Path(args.out)
@@ -72,6 +74,10 @@ def main():
             forces=np.asarray(r["forces"], float).tolist(),
             stress=np.asarray(r["stress"], float).tolist() if atoms.pbc.any() else None,
         )
+        if nc_calc is not None:
+            nc_atoms = atoms.copy()
+            nc_atoms.calc = nc_calc
+            ref["nc_forces"] = np.asarray(nc_atoms.get_forces(), float).tolist()
         (out / f"{label}_{name}.json").write_text(json.dumps(ref, indent=1))
         print(f"{label:>16} {name:>8}: E = {ref['energy']:.6f} eV")
 

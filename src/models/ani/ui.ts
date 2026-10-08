@@ -1,6 +1,7 @@
 // ANI-2x in the visualiser.
 import type { Mod, ModDesc } from '../../viz/modules';
 import type { ModelUI } from '../ui';
+import { aniBack, aniStep } from './article';
 import type { AniMeta } from './model';
 
 
@@ -18,6 +19,7 @@ function describe(seg: string): ModDesc | null {
 }
 
 const list = (xs: number[], d = 2) => xs.map((x) => x.toFixed(d)).join(', ');
+const num = (x: number) => +x.toPrecision(4);
 
 export const aniUI: ModelUI = {
   kind: 'ani',
@@ -54,7 +56,7 @@ export const aniUI: ModelUI = {
         The chemiscope graph shows these pairs.</p>`;
       case 'radial': return `
         <p><b>Radial symmetry functions.</b> For each pair, ${R.shifts.length} Gaussians
-        ¼ exp(−η(<i>r</i> − μ<sub>k</sub>)²) with η = ${R.eta} Å⁻² and centres μ from ${R.shifts[0].toFixed(2)} to
+        ¼ exp(−η(<i>r</i> − μ<sub>k</sub>)²) with η = ${num(R.eta)} Å⁻² and centres μ from ${R.shifts[0].toFixed(2)} to
         ${R.shifts[R.shifts.length - 1].toFixed(2)} Å, multiplied by a cosine cutoff that reaches zero at ${R.cutoff} Å.</p>
         <p>They are summed separately for each element of neighbour, so the selected atom's block is
         ${S} elements (rows: ${meta.symbols.join(', ')}) × ${R.shifts.length} shells.</p>`;
@@ -62,7 +64,7 @@ export const aniUI: ModelUI = {
         <p><b>Angular symmetry functions</b> (ANI's modified Behler G4). For every pair of neighbours <i>j, k</i>
         within ${A.cutoff} Å of atom <i>i</i>, with angle θ<sub>ijk</sub>:</p>
         <p>2 ((1 + cos(θ − θ<sub>s</sub>)) / 2)<sup>ζ</sup> · exp(−η((<i>r</i><sub>ij</sub> + <i>r</i><sub>ik</sub>)/2 − μ)²) · f<sub>c</sub>(<i>r</i><sub>ij</sub>) f<sub>c</sub>(<i>r</i><sub>ik</sub>)</p>
-        <p>with ζ = ${A.zeta}, η = ${A.eta}, ${A.sections.length} angle centres θ<sub>s</sub> (${list(A.sections)}) and
+        <p>with ζ = ${num(A.zeta)}, η = ${num(A.eta)}, ${A.sections.length} angle centres θ<sub>s</sub> (${list(A.sections)}) and
         ${A.shifts.length} distance centres. (θ is taken as acos(0.95 cos θ), which keeps the derivative finite.) The terms
         are summed per unordered pair of neighbour elements: ${NP} pairs × ${A.shifts.length * A.sections.length} features.</p>`;
       case 'descriptor': return `
@@ -84,6 +86,14 @@ export const aniUI: ModelUI = {
       default: return '';
     }
   },
+  step: aniStep,
+  back: aniBack,
+  intro: (meta: AniMeta) => `<h1>ANI-2x, step by step</h1>
+    <p>ANI-2x is a <i>Behler–Parrinello</i> network: each atom's neighbourhood is summarised by a fixed vector of
+    symmetry functions (radial Gaussians and angular terms, sorted by neighbour element), and a small network per element
+    turns that vector into the atom's energy. The total energy is the sum. ${meta.members} independently trained copies are averaged.</p>
+    <p>Each block is an operation's output for the selected atom; on the right, the pairs within ${meta.radial.cutoff} Å that
+    enter its radial symmetry functions. <b>Click an atom</b> to follow it.</p>`,
   card: (meta: AniMeta, nParams, label) => `<b>${label}</b> · ${(nParams / 1e6).toFixed(2)} M parameters (${meta.members}-member ensemble)<br>
     elements ${meta.symbols.join(' ')} · ωB97X/6-31G(d)<br>radial cutoff ${meta.radial.cutoff} Å · angular cutoff ${meta.angular.cutoff} Å<br>
     <span style="opacity:.7">${meta.source ?? 'TorchANI'} · MIT licence</span>`,

@@ -19,7 +19,11 @@
 # url = "https://download.pytorch.org/whl/cpu"
 # explicit = true
 # ///
-"""Convert a upet PET model into a libtorch-free checkpoint for pet-kokkos.
+"""Convert a upet PET model into a libtorch-free checkpoint (pet-kokkos format).
+
+Vendored from pet-kokkos (tools/convert_pet.py). Added here: --non-conservative,
+which also keeps the direct (non-conservative) force heads and their per-element
+scales, under "non_conservative" in the JSON.
 
 Emits two files:
   <out>.json         hyperparameters, species map, composition energies, energy scale
@@ -199,6 +203,22 @@ def extract_energy_scale(model, target: str) -> float:
     return float(block.values.reshape(-1)[0])
 
 
+def extract_species_scale(model, target: str, atomic_types):
+    """Per-species-index scale of a per-atom target (one value, or one per type)."""
+    sc = model.scaler
+    inner = getattr(sc, "model", sc)
+    block = inner.scales[target].block(0)
+    vals = [float(x) for x in block.values.reshape(-1)]
+    if len(vals) == 1:
+        return vals * len(atomic_types)
+    labels = [int(x) for x in block.samples.values[:, 0]]
+    if sorted(labels) == list(range(len(atomic_types))):  # labelled by species index
+        by = dict(zip(labels, vals))
+        return [by[i] for i in range(len(atomic_types))]
+    by = dict(zip(labels, vals))  # labelled by atomic number
+    return [by.get(z, 1.0) for z in atomic_types]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=None,
@@ -210,6 +230,8 @@ def main():
     ap.add_argument("--variant", default=None,
                     help="energy variant to select, e.g. 'pbe0' -> 'energy/pbe0'")
     ap.add_argument("--out", required=True, help="output path stem (without extension)")
+    ap.add_argument("--non-conservative", action="store_true",
+                    help="also keep the non-conservative force head(s)")
     args = ap.parse_args()
 
     if (args.model is None) == (args.ckpt is None):
@@ -308,6 +330,14 @@ def main():
         "composition_energies": extract_composition(model, target, n_species),
     }
 
+    nc_targets = []
+    if args.non_conservative:
+        heads = {k.split(".")[1] for k in sd if k.startswith("node_heads.")}
+        nc_targets = sorted(t for t in heads if t.startswith("non_conservative_force"))
+        if not nc_targets:
+            ap.error(f"no non-conservative force head in this model (heads: {sorted(heads)})")
+        meta["non_conservative"] = {t: {"scale": extract_species_scale(model, t, atomic_types)} for t in nc_targets}
+
     # Collect kept float weights (contiguous, fp32), renaming variant heads.
     tensors = {}
     dropped = []
@@ -315,7 +345,7 @@ def main():
         if not torch.is_floating_point(t):
             dropped.append(name)
             continue
-        if not keep_weight(name, target):
+        if not (keep_weight(name, target) or any(keep_weight(name, nc) for nc in nc_targets)):
             dropped.append(name)
             continue
         tensors[canonical_name(name, target)] = t.detach().to(torch.float32).contiguous()

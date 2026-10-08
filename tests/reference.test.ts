@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { Graph } from '../src/engine/tensor';
 import { evaluate, type PET } from '../src/models/pet/model';
 import { loadModel } from './util';
 
@@ -24,6 +25,15 @@ describe('CPU engine vs metatrain', () => {
       expect(maxAbs(res.energies, ref.energies)).toBeLessThan(1e-4 * Math.max(1, Math.abs(ref.energy) / ref.energies.length));
       expect(dF).toBeLessThan(2e-4);
       expect(dS).toBeLessThan(2e-5);
+      if (ref.nc_forces) {
+        const m = cache.get(ref.model)!, g = new Graph(m.be);
+        const out = m.forward(g, { numbers: ref.atomic_numbers, positions: ref.positions, cell: ref.cell, pbc: ref.pbc }, { nc: true });
+        const nc = await m.be.read(out.ncForces!.buf);
+        g.release();
+        const dNC = maxAbs(nc, ref.nc_forces.flat());
+        console.log(`   nc forces: max |dF| = ${dNC.toExponential(2)}`);
+        expect(dNC).toBeLessThan(2e-4);
+      }
     });
   }
 });

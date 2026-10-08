@@ -12,7 +12,7 @@ export interface RowSpace {
   edge?: Int32Array; // the graph edge a row stands for (-1: none)
 }
 
-/** The graph drawn over the structure in chemiscope: edge e goes from center[e] to neighbor[e] + shift. */
+/** The graph drawn over the structure: edge e goes from center[e] to neighbor[e] + shift. */
 export interface GraphSpec {
   center: Int32Array;
   neighbor: Int32Array;
@@ -37,6 +37,8 @@ export interface Forward {
   graph: GraphSpec;
   rows: Record<string, RowSpace>;
   attention?: AttentionSpec[];
+  /** Other per-atom outputs worth colouring the structure by, e.g. { charge: [N] }. */
+  extras?: Record<string, Tensor>;
 }
 
 export type ModelKind = 'pet' | 'ani' | 'krr' | 'physnet';

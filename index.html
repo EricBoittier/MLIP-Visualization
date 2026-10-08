@@ -39,22 +39,24 @@
         <div id="legend">
           <span><i class="sw value"></i>activation</span>
           <span><i class="sw grad"></i>gradient ∂E/∂·</span>
-          <span><i class="sw weight"></i>weights</span>
-          <span><i class="sw attn"></i>attention</span>
+          <span><i class="sw weight"></i><span id="legend-weights">weights</span></span>
+          <span id="legend-attn"><i class="sw attn"></i>attention</span>
         </div>
         <div id="net-buttons">
           <button id="follow" class="on" title="Camera follows the active op">Follow</button>
           <button id="overview" title="Show the whole network">Overview</button>
+ <button id="weights-only" title="Show only the weights of the model">Weights</button>
           <button id="zen" title="Just the numbers, forward and backward, on a loop (Esc to leave)">Zen</button>
         </div>
+          <div id="right">
+            <div id="molecule"></div>
+            <div id="right-text">
+              <div id="graph-caption"></div>
+              <div id="energies"></div>
+            </div>
+          </div>
       </section>
-      <aside id="right">
-        <div id="chemiscope"></div>
-        <div id="right-text">
-          <div id="graph-caption"></div>
-          <div id="energies"></div>
-        </div>
-      </aside>
+
     </main>
     <footer>
       <button id="restart" title="Back to the start (Home)">⏮</button>

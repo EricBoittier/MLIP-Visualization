@@ -144,6 +144,8 @@ export class NetworkView {
   rootTitle = '';
   follow = true;
   zen = false;
+  /** Show only the parameters. */
+  weightsOnly = false;
   private zenTime = 0;
   private want = new THREE.Vector3();
   private wantDist = 120;
@@ -298,6 +300,7 @@ export class NetworkView {
   private build(ops: OpInfo[], trace: Trace) {
     this.disposeAll();
     this.ops = ops;
+    this.paramShapes = new Map(Object.entries(trace.paramShapes ?? {}));
     this.root = buildTree(ops, this.describe, this.rootTitle);
     this.leaf = leafOf(this.root, ops.length);
     const block = (kind: Hit['kind'], op: number, sub: number, t: Thumb, g: Thumb | null) => {
@@ -331,7 +334,8 @@ export class NetworkView {
       const a = trace.attention.find((x) => x.op === i);
       if (a) for (let h = 0; h < a.heads; h++) block('head', i, h, this.headThumb(trace, i, h), null);
       const shape = trace.shapes[i];
-      this.opLabels.push(label(`${opLabel(op)}  [${shape.join('×')}]`, 1.1, '#aab2c2', false, 90));
+      this.opText[i] = `${opLabel(op)}  [${shape.join('×')}]`;
+      this.opLabels.push(label(this.weightsOnly ? this.paramLabel(i) : this.opText[i], 1.1, '#aab2c2', false, 90));
     });
     for (const m of walk(this.root)) {
       if (m.depth === 0) continue;
@@ -376,17 +380,19 @@ export class NetworkView {
     if (!this.root || !this.trace) return;
     const aspect = Math.max(this.camera.aspect, 0.6);
     this.layoutAspect = this.camera.aspect;
-    const lay = (this.lay = layout(this.root, this.ops, this.trace, this.zen ? new Set() : this.collapsed, aspect, this.zen));
+    const lay = (this.lay = layout(this.root, this.ops, this.trace, this.zen || this.weightsOnly ? new Set() : this.collapsed, aspect, this.zen, this.weightsOnly));
     const place = (o: THREE.Object3D, r: Rect, z: number, d = 1) => this.moveTo(o, r.x + r.w / 2, -(r.y + r.h / 2), z, r.w, r.h, d, now);
     for (const b of this.blocks) {
       const c = lay.cards[b.op];
-      b.mesh.visible = c.visible;
+      b.mesh.visible = c.visible && (!this.weightsOnly || b.kind === 'weight');
       const r = b.kind === 'op' ? c.block : b.kind === 'weight' ? c.weights.find((w) => w.name === this.ops[b.op].params[b.sub])?.rect : c.heads[b.sub]?.rect;
       if (r) place(b.mesh, { x: c.rect.x + r.x, y: c.rect.y + r.y, w: r.w, h: r.h }, b.kind === 'weight' ? 0.3 : 0.6, b.kind === 'weight' ? 0.6 : 1.2);
     }
     this.opLabels.forEach((t, i) => {
       const c = lay.cards[i];
       t.visible = c.visible && !this.zen;
+      const want = this.weightsOnly ? this.paramLabel(i) : this.opText[i];
+      if (t.text !== want) { t.text = want; t.sync(); }
       this.moveTo(t, c.rect.x, -c.rect.y - 0.4, 0.8, 1, 1, 1, now);
     });
     for (const f of this.frames.values()) {
@@ -474,7 +480,7 @@ export class NetworkView {
     const colors = new Float32Array(pts.length);
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const line = new THREE.LineSegments(geo, this.links?.line.material ?? new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 }));
-    line.visible = !this.zen;
+    line.visible = !this.zen && !this.weightsOnly;
     this.world.add(line);
     this.links = { line, colors, spans };
     this.colorLinks();
@@ -538,6 +544,21 @@ export class NetworkView {
       this.controls.target.copy(this.want);
       this.camera.position.set(this.want.x, this.want.y, this.wantDist);
     }
+  }
+
+  private opText: string[] = [];
+  /** An op's parameters, for the weights-only view: their names and full shapes. */
+  private paramLabel(i: number) {
+    return this.ops[i].params.map((n) => `${n.replace(/^gnn_layers\.\d+\.(trans\.layers\.\d+\.)?/, '')} [${this.paramShapes.get(n)?.join('×') ?? ''}]`).join('   ');
+  }
+  /** Full shapes of the parameters (the thumbnails are averaged down). */
+  paramShapes = new Map<string, number[]>();
+
+  /** Only the weights, grouped by module, at their own size. */
+  setWeightsOnly(on: boolean) {
+    this.weightsOnly = on;
+    this.relayout(false);
+    this.overview();
   }
 
   /** Zen mode: no text, no links, blocks packed tight, the whole network in view, slowly drifting. */

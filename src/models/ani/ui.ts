@@ -53,7 +53,7 @@ export const aniUI: ModelUI = {
         <p>A <b>Behler–Parrinello network</b> describes each atom by a fixed vector of symmetry functions of its
         neighbourhood, then predicts the atom's energy from that vector with a network specific to its element.</p>
         <p>ANI-2x starts from every pair within ${R.cutoff} Å (rows: the selected atom's pairs, columns: <i>x, y, z</i>).
-        The chemiscope graph shows these pairs.</p>`;
+        The structure panel shows these pairs as its graph.</p>`;
       case 'radial': return `
         <p><b>Radial symmetry functions.</b> For each pair, ${R.shifts.length} Gaussians
         ¼ exp(−η(<i>r</i> − μ<sub>k</sub>)²) with η = ${num(R.eta)} Å⁻² and centres μ from ${R.shifts[0].toFixed(2)} to

@@ -139,8 +139,10 @@ export class PhysNet implements Model {
       mp_pair: { label: 'pair', owner: Int32Array.from(mp, (p) => nl.center[p]), edge: range(mp.length) },
     };
 
+    const extras: Record<string, Tensor> = {};
     if (c.charges) {
       const q = g.scope('charges', () => head('charges', 'charge_bias', true));
+      extras.charge = q;
       if (elec) {
         rows.es_pair = { label: 'electrostatic pair', owner: Int32Array.from(es, (p) => nl.center[p]) };
         const E = g.scope('electrostatics', () => {
@@ -187,6 +189,6 @@ export class PhysNet implements Model {
     const energy = g.scope('energy', () => g.sumAll(perAtom, 'total_energy'));
     const graph = { center: Int32Array.from(mp, (p) => nl.center[p]), neighbor: Int32Array.from(mp, (p) => nl.neighbor[p]),
                     shift: new Float32Array(3 * mp.length), label: 'message-passing' };
-    return { energy, perAtom, positions, rows, graph };
+    return { energy, perAtom, positions, rows, graph, extras };
   }
 }

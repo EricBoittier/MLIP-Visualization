@@ -88,7 +88,7 @@ export class Article {
     steps.forEach((s, k) => {
       if (s.dir !== dir) {
         dir = s.dir;
-        out.push(`<h2 class="sec bwd">Backward pass: forces</h2><div class="lead">${ctx.ui.narration('backward', ctx.meta)}</div>`);
+        out.push(`<h2 class="sec bwd">${ctx.ui.terms?.backwardTitle ?? 'Backward pass: forces'}</h2><div class="lead">${ctx.ui.narration('backward', ctx.meta)}</div>`);
         section = null;
       }
       const head = s.dir === 'fwd' ? sectionOf(s.mod) : null;

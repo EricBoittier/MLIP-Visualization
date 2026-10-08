@@ -29,6 +29,7 @@ export interface Trace {
   values: (Thumb | null)[];
   grads: (Thumb | null)[];
   params?: Record<string, { value: Thumb; grad: Thumb | null }>;
+  paramShapes?: Record<string, number[]>; // full shapes (the thumbnails are block averages)
   attention: AttentionMap[];
   selected: number; // the atom whose rows are shown
   rowSel: (Int32Array | null)[]; // per op: which rows of the output are shown (null: all, averaged)
@@ -49,6 +50,7 @@ export interface Pass {
   mode: ForceMode;
   forces?: Float32Array; // conservative, -dE/dr
   ncForces?: Float32Array; // direct head
+  atomProps?: Record<string, Float32Array>; // other per-atom outputs (e.g. charge)
   stress?: number[][];
   trace: Trace;
 }
@@ -64,7 +66,7 @@ export type ForceMode = 'conservative' | 'direct' | 'both';
 
 export type FromWorker =
   | { type: 'ready'; backend: string; adapter: string }
-  | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number; hasNC: boolean; activate: boolean }
+  | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number; hasNC: boolean; activate: boolean; elements: number[] }
   | { type: 'pass'; pass: Pass }
   | { type: 'progress'; text: string }
   | { type: 'error'; text: string };

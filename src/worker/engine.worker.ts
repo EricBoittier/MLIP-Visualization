@@ -38,6 +38,8 @@ async function evaluate(m: Model, sys: System, selected: number, mode: ForceMode
     if (back) bufs.push(out.positions.grad!);
     if (virial) bufs.push(out.virialVectors!.buf, out.virialVectors!.grad!);
     if (out.ncForces) bufs.push(out.ncForces.buf);
+    const extras = Object.entries(out.extras ?? {});
+    bufs.push(...extras.map(([, t]) => t.buf));
     const read: Float32Array[] = (be as any).readMany ? await (be as any).readMany(bufs) : await Promise.all(bufs.map((b) => be.read(b)));
     const ops = topology(g, m);
     const key = m.kind + topologyKey(ops);
@@ -58,7 +60,8 @@ async function evaluate(m: Model, sys: System, selected: number, mode: ForceMode
       for (let k = 0; k < v.length / 3; k++) for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) s[a][b] += (v[3 * k + a] * gv[3 * k + b]) / V;
       pass.stress = s;
     }
-    if (out.ncForces) pass.ncForces = read[read.length - 1];
+    if (out.ncForces) pass.ncForces = read[read.length - 1 - extras.length];
+    if (extras.length) pass.atomProps = Object.fromEntries(extras.map(([k], n) => [k, read[read.length - extras.length + n]]));
     return pass;
   } finally {
     g.release();
@@ -85,7 +88,7 @@ async function handle(msg: ToWorker) {
       const nParams = [...m.params.values()].reduce((s, t) => s + t.size, 0);
       // a fitted model reports how the fit went (and the structure stays here)
       const meta = (m as any).report ? { ...msg.meta, system: undefined, report: (m as any).report, elements: m.elements } : msg.meta;
-      post({ type: 'model', id: msg.id, kind: m.kind, label: msg.label, meta, nParams, hasNC: !!m.hasNC, activate: msg.activate });
+      post({ type: 'model', id: msg.id, kind: m.kind, label: msg.label, meta, nParams, hasNC: !!m.hasNC, activate: msg.activate, elements: m.elements });
       break;
     }
     case 'use':

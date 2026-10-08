@@ -1,6 +1,6 @@
 // PET in the visualiser: module names, diagram subtitles, narration and model card.
 import { ancestors, type ModDesc, type Mod } from '../../viz/modules';
-import type { ModelUI } from '../ui';
+import { type ModelUI, NN_TERMS } from '../ui';
 import { petBack, petStep } from './article';
 import type { Hypers, ModelMeta } from './checkpoint';
 
@@ -128,6 +128,7 @@ function narration(m: Mod | 'backward', h: Hypers): string {
 
 export const petUI: ModelUI = {
   kind: 'pet',
+  terms: { ...NN_TERMS, attention: true },
   name: 'PET',
   family: 'Point Edge Transformer (graph transformer)',
   describe,

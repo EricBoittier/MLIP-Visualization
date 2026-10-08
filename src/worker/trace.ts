@@ -75,7 +75,7 @@ export async function capture(g: Graph, model: Model, out: Forward, opts: { sele
     const [R, C] = dims(t.shape);
     return { x: t.buf, R, C, rows: Math.min(R, MAX_W), cols: Math.min(C, MAX_W) };
   });
-  // RMS of every row (all atoms / edges / tokens), to colour the graph in chemiscope
+  // RMS of every row (all atoms / edges / tokens), to colour the structure view
   const normBufs: Buf[] = [], normOf: [number, 'v' | 'g'][] = [];
   const rowRms = (x: Buf, shape: number[]) => {
     const [R, C] = dims(shape);
@@ -116,5 +116,6 @@ export async function capture(g: Graph, model: Model, out: Forward, opts: { sele
     const { offset, atoms } = x.tokens(a), n = atoms.length;
     return { heads: x.heads, n, atoms, op: g.tape.indexOf(x.node), probs: probsAll[i].slice(offset, offset + x.heads * n * n) };
   });
-  return { values, grads, params: paramThumbs, attention, rowSel, selected: a, norms, gradNorms };
+  const paramShapes = Object.fromEntries([...model.params].map(([k, t]) => [k, t.shape]));
+  return { values, grads, params: paramThumbs, paramShapes, attention, rowSel, selected: a, norms, gradNorms };
 }

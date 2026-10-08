@@ -42,8 +42,9 @@ function subtitle(m: Mod, meta: Meta): string {
 function narration(m: Mod | 'backward', meta: Meta): string {
   const h = hyp(meta), r = meta.report;
   if (m === 'backward') return `
-    <p>Forces are −∂<i>E</i>/∂<b>r</b>. The fit is finished, so the gradient does not go through it. It runs from the energy
-    through the weights α to the kernel values, through the normalised power spectrum and the density coefficients to the
+    <p>Forces are −∂<i>E</i>/∂<b>r</b> = −Σ<sub>t</sub> α<sub>t</sub> ∂<i>k</i><sub>t</sub>/∂<b>r</b>: the derivative of the prediction, by the chain rule
+    through the descriptor. The fit is fixed, so nothing here touches it. The derivative runs from the energy
+    through the coefficients α to the kernel values, through the normalised power spectrum and the density coefficients to the
     radial integrals (by the slope of their spline) and the spherical harmonics, and from there to the pair vectors.</p>
     <p>Kernel models give smooth, exactly conservative forces this way, even though this one was fitted to energies only.</p>`;
   switch (m.path.split('/').pop()) {
@@ -77,7 +78,8 @@ function narration(m: Mod | 'backward', meta: Meta): string {
     case 'regression': return `<p><b>Regression.</b> The atom's energy is a weighted sum of its kernel values,
       ε<sub>i</sub> = <i>b</i> + Σ<sub>t</sub> α<sub>t</sub> <i>k</i>(<b>p</b><sub>i</sub>, <b>x</b><sub>t</sub>), with the weights α from the fit
       and a constant baseline <i>b</i> (the mean energy per atom of the training set).</p>`;
-    case 'energy': return `<p>The total energy is the sum of the atomic energies. The backward pass follows.</p>`;
+    case 'energy': return `<p>The total energy is the sum of the atomic energies. That is the prediction; the forces come from
+      differentiating it with respect to the positions.</p>`;
     default: return '';
   }
 }
@@ -156,6 +158,8 @@ function back(m: Mod, c: Ctx): string {
 
 export const krrUI: ModelUI = {
   kind: 'krr',
+  // a kernel model is fitted, then evaluated: there is no network to run backwards
+  terms: { forward: 'prediction', backward: 'force evaluation', backwardTitle: 'Forces: differentiating the prediction', weights: 'sparse points & α' },
   name: 'KRR / SOAP',
   family: 'kernel ridge regression',
   describe,

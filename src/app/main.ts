@@ -2,9 +2,9 @@ import './style.css';
 import { SYMBOLS } from '../common/elements';
 import type { System } from '../common/structure';
 import type { ModelKind } from '../models/types';
-import type { ModelUI } from '../models/ui';
+import { type ModelUI, NN_TERMS } from '../models/ui';
 import { UIS } from '../models/uis';
-import { GraphView } from '../viz/graph';
+import { MoleculeView } from '../viz/molecule';
 import { Article, buildSteps, epilogue, type Step } from '../viz/article';
 import { Diagram } from '../viz/diagram';
 import { ancestors, MOD_COLOR, walk } from '../viz/modules';
@@ -22,6 +22,7 @@ const send = (m: ToWorker, t: Transferable[] = []) => worker.postMessage(m, t);
 
 let meta: any = null;
 let ui: ModelUI | null = null;
+const terms = () => ui?.terms ?? NN_TERMS;
 let ops: OpInfo[] = [];
 let pass: Pass | null = null;
 let system: System = PRESETS.ethanol;
@@ -39,7 +40,7 @@ function evaluate() {
 
 // ------------------------------------------------------------------ views
 const net = new NetworkView($('net'));
-const graph = new GraphView($('chemiscope'));
+const graph = new MoleculeView($('molecule'));
 const timeline = new Timeline();
 graph.onSelect = (atom) => { selected = atom; evaluate(); };
 
@@ -101,7 +102,7 @@ function refresh(force = false) {
     const st = steps[k];
     const crumbs = st ? ancestors(st.mod).slice(1) : [];
     $('chapter-title').innerHTML = crumbs.map((a) => `<span style="color:${MOD_COLOR[a.type]}">${a.short}</span>`).join('<i> › </i>');
-    $('chapter-phase').textContent = st?.dir === 'bwd' ? 'backward pass' : 'forward pass';
+    $('chapter-phase').textContent = st?.dir === 'bwd' ? terms().backward : terms().forward;
     $('chapter-phase').className = st?.dir === 'bwd' ? 'bwd' : '';
   }
   if (s.active !== lastActive || force) {
@@ -255,6 +256,13 @@ function setZen(on: boolean) {
   net.setZen(on);
 }
 $('zen').onclick = () => setZen(!zen);
+function setWeightsOnly(on: boolean) {
+  $('weights-only').classList.toggle('on', on);
+  document.body.classList.toggle('weights-only', on);
+  if (on) { timeline.playing = false; net.follow = false; $('follow').classList.remove('on'); }
+  net.setWeightsOnly(on);
+}
+$('weights-only').onclick = () => setWeightsOnly(!net.weightsOnly);
 
 // in zen the wheel scrubs through the pass (ctrl + wheel, i.e. a pinch, still zooms)
 let scrubTo: number | null = null, lastScrub = 0;
@@ -297,7 +305,7 @@ function drawTimeline() {
   for (const k of stepStart) g.fillRect(x(k), 8, 1, 18);
   g.fillStyle = '#fff'; g.fillRect(x(timeline.t) - 1, 4, 2, 26);
   g.fillStyle = '#8a93a6'; g.font = '10px system-ui';
-  g.fillText('forward', 4, 8); g.fillText('backward', x(fe) + 4, 8);
+  g.fillText(terms().forward, 4, 8); g.fillText(terms().backward, x(fe) + 4, 8);
   const s = timeline.state();
   $('scrub-label').textContent = s.active >= 0 ? `${s.dir === 'fwd' ? '→' : '←'} op ${s.active + 1}/${ops.length} · ${ops[s.active].scope || 'input'} · ${ops[s.active].op}` : 'pass complete';
 }
@@ -418,8 +426,23 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     fm.title = m.hasNC ? '' : 'This model has no direct-force head';
     $('intro-text').innerHTML = u.intro?.(m.meta) ?? `<h1>${u.name}, step by step</h1>`;
     $('model-card').innerHTML = u.card(m.meta, m.nParams, m.label);
+    const t = terms();
+    $('legend-weights').textContent = t.weights;
+    $('legend-attn').hidden = !t.attention;
+    $('weights-only').textContent = t.weights[0].toUpperCase() + t.weights.slice(1);
+    $('weights-only').title = `Show only the ${t.weights} of the model`;
+    if (net.weightsOnly) setWeightsOnly(false);
     timeline.seek(0);
     autoplay = true;
+    // a model that cannot handle this structure's elements gets the first preset it can
+    const fits = (sys: System) => sys.numbers.every((z) => m.elements.includes(z));
+    const pref = u.preferredStructure;
+    if (pref && PRESETS[pref] && system !== PRESETS[pref]) {
+      system = PRESETS[pref]; selected = 0; structSel.value = pref;
+    } else if (m.kind !== 'krr' && !fits(system)) {
+      const k = Object.keys(PRESETS).find((key) => fits(PRESETS[key]));
+      if (k) { system = PRESETS[k]; selected = 0; structSel.value = k; status(`switched to ${PRESETS[k].label}: ${u.name} has no parameters for this structure's elements`); }
+    }
     evaluate();
   } else if (m.type === 'pass') {
     busy = false;
@@ -438,7 +461,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     graph.setPass(p, ops);
     const ms = p.trace.ms;
     status(`<b>E = ${p.energy.toFixed(4)} eV</b> · ${p.numbers.length} atoms, ${p.trace.graph.center.length} ${p.trace.graph.label} edges · ` +
-      `forward ${ms.forward.toFixed(1)} ms${p.forces ? ` · backward ${ms.backward.toFixed(1)} ms` : ' · no backward pass'}<br>${backend}`);
+      `${terms().forward} ${ms.forward.toFixed(1)} ms${p.forces ? ` · ${terms().backward} ${ms.backward.toFixed(1)} ms` : ` · no ${terms().backward}`}<br>${backend}`);
     const norm3 = (F: Float32Array, i: number) => Math.hypot(F[3 * i], F[3 * i + 1], F[3 * i + 2]);
     const a = selected, parts = [`selected ${label(a)}: ε = <b>${p.energies[a].toFixed(4)}</b> eV`];
     if (p.forces) parts.push(`<span class="fc">|F| = <b>${norm3(p.forces, a).toFixed(3)}</b></span>`);

@@ -29,8 +29,10 @@ export const titleSize = (depth: number) => [8, 6, 3.2, 2.2, 1.7][Math.min(depth
 const PAD = 2.5;
 const gap = (depth: number) => (depth === 0 ? 12 : 3);
 
-/** `compact`: zen mode, no text rows and the blocks packed close together. */
-export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<string>, aspect: number, compact = false): Layout {
+/** `compact`: zen mode, no text rows and the blocks packed close together.
+ *  `weightsOnly`: just the parameters, at their own size, grouped by module. */
+export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<string>, aspect: number, compact = false,
+                       weightsOnly = false): Layout {
   const LBL = compact ? 0 : LABEL, PADc = compact ? 0.8 : PAD, SEP = compact ? 0.7 : 1.5;
   const gapOf = (depth: number) => (compact ? (depth === 0 ? 3 : 1) : gap(depth));
   const band = (title: number) => (compact ? 0 : title * 1.8);
@@ -40,6 +42,19 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
 
   // ---- sizes, bottom-up
   const card = (i: number): Card => {
+    if (weightsOnly) {
+      let x = 0;
+      const weights = ops[i].params.flatMap((name) => {
+        const p = trace.params?.[name]?.value;
+        if (!p) return [];
+        const r = { x, y: LBL, w: p.cols, h: p.rows };
+        x += p.cols + 3 * SEP;
+        return [{ name, rect: r }];
+      });
+      const h = weights.length ? LBL + Math.max(...weights.map((w) => w.rect.h)) : 0;
+      return { op: i, rect: { x: 0, y: 0, w: weights.length ? Math.max(x - 3 * SEP, 8) : 0, h }, block: { x: 0, y: LBL, w: 0, h: 0 },
+               weights, heads: [], visible: weights.length > 0 };
+    }
     const t = trace.values[i]!;
     const bw = Math.max(t.cols, 1), bh = Math.max(t.rows, 1);
     const H = compact ? bh : Math.min(Math.max(bh, 8), 32);
@@ -65,11 +80,17 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
     const isCollapsed = collapsed.has(m.id) && m.depth > 0;
     const frame: Frame = { mod: m, rect: { x: 0, y: 0, w: 0, h: 0 }, collapsed: isCollapsed, visible, title: titleSize(m.depth) };
     if (m.depth > 0) frames.set(m.id, frame);
-    const kids: Sized[] = m.items.map((it) => {
+    const all: Sized[] = m.items.map((it) => {
       if ('mod' in it) return size(it.mod, visible && !isCollapsed);
       const c = (cards[it.op] = card(it.op));
-      return { w: c.rect.w, h: c.rect.h, place: (x, y, v) => { c.rect.x = x; c.rect.y = y; c.visible = v; } };
+      const empty = weightsOnly && !c.weights.length;
+      return { w: c.rect.w, h: c.rect.h, place: (x, y, v) => { c.rect.x = x; c.rect.y = y; c.visible = v && !empty; } };
     });
+    // with only the weights, ops (and modules) without any take no room
+    const kids = weightsOnly ? all.filter((k) => k.w > 0) : all;
+    if (weightsOnly && !kids.length && m.depth > 0) {
+      return { w: 0, h: 0, place: (x, y) => { frame.rect = { x, y, w: 0, h: 0 }; frame.visible = false; all.forEach((k) => k.place(x, y, false)); } };
+    }
     const pad = m.depth ? PADc : 0, g = gapOf(m.depth);
     let top = m.depth ? band(frame.title) : 0;
     if (isCollapsed) {
@@ -115,6 +136,7 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
       w, h, place: (x, y, v) => {
         frame.rect = { x, y, w, h };
         frame.visible = v;
+        if (weightsOnly) all.filter((k) => k.w === 0).forEach((k) => k.place(x, y, false));
         let yy = y + top + pad;
         for (const r of rows) {
           let xx = x + pad;

@@ -19,6 +19,13 @@
   "label": "KRR / SOAP (fitted here)"
  },
  {
+  "name": "physnet-acetone",
+  "kind": "physnet",
+  "label": "PhysNet \u00b7 acetone MP2",
+  "meta": "physnet-acetone.json",
+  "weights": "physnet-acetone.safetensors"
+ },
+ {
   "name": "pet-mols-s-v1.0",
   "kind": "pet",
   "label": "PET-MOLS S v1.0",

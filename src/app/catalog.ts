@@ -7,6 +7,11 @@ export interface ModelEntry { name: string; kind: ModelKind; label?: string; met
 
 export const KIND_ORDER: ModelKind[] = ['pet', 'mace', 'lorem', 'ani', 'physnet', 'krr'];
 
+/** Models with production weights, trusted to drive dynamics or to label samples. PhysNet and LOREM ship
+ *  demo weights (a small fit and a random initialisation); KRR is itself fitted per structure. */
+export const SAMPLERS: ModelKind[] = ['pet', 'mace', 'ani'];
+export const canSample = (e: ModelEntry) => SAMPLERS.includes(e.kind);
+
 // Model files come from public/models/ when it has them (local development), otherwise from the
 // Hugging Face repository that scripts/publish_weights.py fills; ?models=<base url> picks another.
 export const HF_MODELS = 'https://huggingface.co/EricBoi/mlip-visualization-models/resolve/main/';

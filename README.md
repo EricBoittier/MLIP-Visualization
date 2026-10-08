@@ -73,7 +73,8 @@ uv run scripts/export_physnet.py --params acetone.params.json --out public/model
 ```
 
 KRR/SOAP needs no files: it is fitted in the browser, on rattled copies of the
-current structure labelled by another loaded model (the "teacher").
+current structure labelled by another loaded model (the "teacher"). Only models with production
+weights (PET, MACE, ANI-2x) can be teachers, since PhysNet and LOREM ship demo weights.
 
 `public/models/index.json` lists the models the app offers. When `public/models/` has no
 weights (a deployed build), the app downloads them from the Hugging Face repository

@@ -1,7 +1,7 @@
 import '../app/style.css';
 import './md.css';
 import { isPeriodic, type System } from '../common/structure';
-import { fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from '../app/catalog';
+import { canSample, fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from '../app/catalog';
 import { PRESETS } from '../app/presets';
 import { parseXYZ } from '../app/xyz';
 import type { ModelKind } from '../models/types';
@@ -21,9 +21,6 @@ const si = (x: number) => {
   const k = Math.min(Math.max(Math.floor(Math.log10(Math.max(x, 1)) / 3), 0), 4);
   return `${(x / 1000 ** k).toPrecision(3)} ${['', 'k', 'M', 'G', 'T'][k]}`;
 };
-/** Models with production weights and local (cutoff) interactions. PhysNet and LOREM ship demo weights;
- *  KRR is fitted per structure on the visualiser. */
-const DYNAMICS: ModelKind[] = ['pet', 'mace', 'ani'];
 
 // categorical slots 1-3 of the chart palette, validated on the dark panel
 const BLUE = '#3987e5', ORANGE = '#d95926', AQUA = '#199e70';
@@ -204,7 +201,7 @@ async function loadModel(e: ModelEntry) {
 
 async function listModels() {
   ({ entries, base } = await findModels());
-  entries = entries.filter((m) => DYNAMICS.includes(m.kind));
+  entries = entries.filter(canSample); // production weights only (catalog.ts)
   if (!entries.length) { status('<b>No models found</b> locally or on Hugging Face.'); return; }
   const kinds = KIND_ORDER.filter((k) => entries.some((m) => m.kind === k));
   kindSel.innerHTML = kinds.map((k) => `<option value="${k}">${UIS[k]?.typeName ?? UIS[k]?.name ?? k} · ${UIS[k]?.family ?? ''}</option>`).join('');

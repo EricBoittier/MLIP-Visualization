@@ -48,7 +48,15 @@ uv run scripts/export_physnet.py --params acetone.params.json --out public/model
 KRR/SOAP needs no files: it is fitted in the browser, on rattled copies of the
 current structure labelled by another loaded model (the "teacher").
 
-`public/models/index.json` lists the models the app offers.
+`public/models/index.json` lists the models the app offers. When `public/models/` has no
+weights (a deployed build), the app downloads them from the Hugging Face repository
+[EricBoi/mlip-visualization-models](https://huggingface.co/EricBoi/mlip-visualization-models);
+`?models=<base url>` points it at any other folder with an `index.json`. To publish the local
+models there, with a model card giving each one's source and licence:
+
+```bash
+HF_TOKEN=hf_... uv run scripts/publish_weights.py   # --dry-run lists the files first
+```
 
 ## Tests
 

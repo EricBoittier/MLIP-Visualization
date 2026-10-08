@@ -371,10 +371,24 @@ function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate 
     await done;
   })();
 }
+// Model files come from public/models/ when it has them (local development), otherwise from the
+// Hugging Face repository that scripts/publish_weights.py fills; ?models=<base url> picks another.
+const HF_MODELS = 'https://huggingface.co/EricBoi/mlip-visualization-models/resolve/main/';
+let base = 'models/';
+const getJSON = async (u: string) => { const r = await fetch(u); if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.json(); };
 async function listModels() {
-  try { entries = await (await fetch('models/index.json')).json(); } catch { entries = []; }
-  if (!entries.length) entries = [{ name: 'pet-mad-xs', kind: 'pet', meta: 'pet-mad-xs.json', weights: 'pet-mad-xs.safetensors' }];
-  const q = new URLSearchParams(location.search).get('model');
+  const params = new URLSearchParams(location.search), custom = params.get('models');
+  for (const b of custom ? [custom.replace(/\/?$/, '/')] : ['models/', HF_MODELS]) {
+    try {
+      const list: ModelEntry[] = await getJSON(`${b}index.json`);
+      const probe = list.find((x) => x.meta);
+      if (probe) await getJSON(b + probe.meta); // index.json is in git; the weights may not be
+      [entries, base] = [list, b];
+      break;
+    } catch { entries = []; }
+  }
+  if (!entries.length) status('<b>No models found</b> locally or on Hugging Face. Convert some (see <code>public/models/README.md</code>) or open a pair of model files.');
+  const q = params.get('model');
   if (q) {
     // ?model=<url stem>: a PET model at <stem>.json and <stem>.safetensors (e.g. a HuggingFace repo)
     entries.push({ name: q, kind: 'pet', label: q.split('/').pop(), meta: `${q}.json`, weights: `${q}.safetensors` });
@@ -397,9 +411,9 @@ async function listModels() {
   kindSel.onchange = () => { fillVariants(); loadModel(current()); };
   modelSel.onchange = () => loadModel(current());
   if (q) { kindSel.value = 'pet'; fillVariants(); modelSel.value = q; } else fillVariants();
-  loadModel(current());
+  if (entries.length) loadModel(current());
 }
-const stem = (name: string) => (/^https?:/.test(name) ? name : `models/${name}`);
+const stem = (name: string) => (/^https?:/.test(name) ? name : base + name);
 $<HTMLInputElement>('model-files').onchange = async (e) => {
   const files = [...((e.target as HTMLInputElement).files ?? [])];
   const j = files.find((f) => f.name.endsWith('.json')), w = files.find((f) => f.name.endsWith('.safetensors'));

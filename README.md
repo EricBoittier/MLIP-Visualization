@@ -18,8 +18,9 @@ Models:
 | KRR with SOAP | kernel method, fitted in the browser to another model | runs; forces checked by finite differences |
 | PhysNet (mmml physnetjax, invariant) | message-passing network with charges and electrostatics | runs, verified against the JAX code; demo model trained on acetone dimers |
 | MACE (MACE-MP-0) | equivariant message passing (ACE) | runs, verified against mace-torch |
+| LOREM | equivariant message passing with a long-range Coulomb head | runs, verified against metatrain's experimental port; the shipped checkpoint is a small random initialization |
 
-SpookyNet and other equivariant models are left for later.
+SpookyNet is left for later.
 
 Everything runs locally: a small tape-based autograd engine in TypeScript with
 a CPU backend and a WebGPU backend (WGSL kernels for every op, forward and
@@ -38,6 +39,8 @@ Model weights are not in the repository. Convert them into `public/models/`:
 uv run scripts/convert_pet.py --model pet-mad-xs --out public/models/pet-mad-xs   # add --non-conservative for direct forces
 uv run scripts/convert_ani.py --out public/models/ani-2x
 uv run scripts/convert_mace.py --model mace-mp-0b3-medium --out public/models/mace-mp-0b3-medium
+# LOREM needs the metatrain checkout's lorem-tests env (the experimental port is not on PyPI):
+#   <metatrain>/.tox/lorem-tests/bin/python scripts/convert_lorem.py --out public/models/lorem-demo
 uv run scripts/convert_mace.py --model mace-mp-0b2-small --out public/models/mace-mp-0b2-small
 ```
 
@@ -88,6 +91,8 @@ with the CPU ones (through Node's `webgpu` package).
 ## Credits
 
 MACE-MP-0 is from [mace-foundations/mace-mp-0](https://huggingface.co/mace-foundations/mace-mp-0) (MIT).
+LOREM follows [metatrain's experimental port](https://github.com/lab-cosmo/metatrain) of Bigi et al., arXiv:2507.19382;
+the demo checkpoint is an untrained draw of that architecture.
 ANI-2x is from [TorchANI](https://github.com/aiqm/torchani) (MIT).
 `scripts/convert_pet.py` comes from
 [pet-kokkos](https://github.com/EricBoittier/pet-kokkos). PET and PET-MAD are

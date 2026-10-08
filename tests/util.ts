@@ -7,6 +7,7 @@ import { PET } from '../src/models/pet/model';
 import { ANI } from '../src/models/ani/model';
 import { PhysNet } from '../src/models/physnet/model';
 import { MACE } from '../src/models/mace/model';
+import { LOREM } from '../src/models/lorem/model';
 
 export function loadModel(name: string, be: Backend = new CpuBackend()) {
   const meta: ModelMeta = JSON.parse(readFileSync(`public/models/${name}.json`, 'utf8'));
@@ -26,6 +27,12 @@ export function loadPhysNet(stem = 'tests/fixtures/physnet-test', be: Backend = 
   const meta = JSON.parse(readFileSync(`${stem}.json`, 'utf8'));
   const buf = readFileSync(`${stem}.safetensors`);
   return new PhysNet(be, meta, parseSafetensors(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)));
+}
+
+export function loadLOREM(name = 'lorem-demo', be: Backend = new CpuBackend()) {
+  const meta = JSON.parse(readFileSync(`public/models/${name}.json`, 'utf8'));
+  const buf = readFileSync(`public/models/${name}.safetensors`);
+  return new LOREM(be, meta, parseSafetensors(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)));
 }
 
 export function loadMACE(name = 'mace-mp-0b3-medium', be: Backend = new CpuBackend()) {

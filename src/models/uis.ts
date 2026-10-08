@@ -5,5 +5,6 @@ import { krrUI } from './krr/ui';
 import { physnetUI } from './physnet/ui';
 import { petUI } from './pet/ui';
 import { maceUI } from './mace/ui';
+import { loremUI } from './lorem/ui';
 
-export const UIS: Partial<Record<ModelKind, ModelUI>> & Record<'pet', ModelUI> = { pet: petUI, ani: aniUI, krr: krrUI, physnet: physnetUI, mace: maceUI };
+export const UIS: Partial<Record<ModelKind, ModelUI>> & Record<'pet', ModelUI> = { pet: petUI, ani: aniUI, krr: krrUI, physnet: physnetUI, mace: maceUI, lorem: loremUI };

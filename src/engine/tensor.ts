@@ -132,21 +132,21 @@ export class Graph {
   silu(x: Tensor) { return this.unary('silu', x); }
   sigmoid(x: Tensor) { return this.unary('sigmoid', x); }
 
-  binary(op: Binary, a: Tensor, b: Tensor): Tensor {
+  binary(op: Binary, a: Tensor, b: Tensor, name: string = op): Tensor {
     // b: same size, a scalar, one per row, or (shape [1, C]) one per column
     const colwise = b.shape.length === 2 && b.shape[0] === 1 && b.size === a.cols && a.rows > 1;
     const mode = b.size === a.size ? 'full' : b.size === 1 ? 'scalar' : colwise ? 'col' : 'row';
     if (mode === 'row' && b.size !== a.rows) throw new Error(`${op}: cannot broadcast ${b.shape} onto ${a.shape}`);
     const y = this.tensor(a.shape);
     this.be.binary(op, a.buf, b.buf, y.buf, a.size, mode, a.cols);
-    return this.record(op, [a, b], y, () => {
+    return this.record(name, [a, b], y, () => {
       this.be.binaryGrad(op, a.buf, b.buf, y.grad!, this.g(a), this.g(b), a.size, mode, a.cols);
     });
   }
-  add(a: Tensor, b: Tensor) { return this.binary('add', a, b); }
-  sub(a: Tensor, b: Tensor) { return this.binary('sub', a, b); }
-  mul(a: Tensor, b: Tensor) { return this.binary('mul', a, b); }
-  div(a: Tensor, b: Tensor) { return this.binary('div', a, b); }
+  add(a: Tensor, b: Tensor, name = 'add') { return this.binary('add', a, b, name); }
+  sub(a: Tensor, b: Tensor, name = 'sub') { return this.binary('sub', a, b, name); }
+  mul(a: Tensor, b: Tensor, name = 'mul') { return this.binary('mul', a, b, name); }
+  div(a: Tensor, b: Tensor, name = 'div') { return this.binary('div', a, b, name); }
 
   scale(x: Tensor, alpha: number, name = 'scale'): Tensor {
     const y = this.tensor(x.shape);
@@ -268,6 +268,44 @@ export class Graph {
     return this.record(`cutoff_${kind}`, [d, rc], y, () => {
       this.be.cutoffGrad(kind, d.buf, rc.buf, y.grad!, this.g(d), this.g(rc), d.size, width);
     });
+  }
+
+  /** Tabulated functions of x [E]: y[e, c] = spline through V[c, :] and slopes D[c, :] at x = k h. */
+  spline(x: Tensor, V: Tensor, D: Tensor, h: number, name = 'spline'): Tensor {
+    const [C, K] = V.shape, n = x.size, y = this.tensor([n, C]);
+    this.be.spline(x.buf, V.buf, D.buf, y.buf, n, C, K, h);
+    return this.record(name, [x, V, D], y, () => this.be.splineGrad(x.buf, V.buf, D.buf, y.grad!, this.g(x)!, n, C, K, h));
+  }
+
+  /** Real spherical harmonics of unit vectors u [E, 3]: [E, (lmax+1)^2]. */
+  sph(u: Tensor, lmax: number, name = 'spherical_harmonics'): Tensor {
+    const n = u.rows, y = this.tensor([n, (lmax + 1) ** 2]);
+    this.be.sph(u.buf, y.buf, n, lmax);
+    return this.record(name, [u], y, () => this.be.sphGrad(u.buf, y.grad!, this.g(u)!, n, lmax));
+  }
+
+  /** SOAP power spectrum of B blocks of A density rows each (see Backend.power). */
+  power(c: Tensor, B: number, A: number, lmax: number, name = 'power_spectrum'): Tensor {
+    const y = this.tensor([B, ((A * (A + 1)) / 2) * (lmax + 1)]);
+    this.be.power(c.buf, y.buf, B, A, lmax);
+    return this.record(name, [c], y, () => this.be.powerGrad(c.buf, y.grad!, this.g(c)!, B, A, lmax));
+  }
+
+  /** x^T for a [R, C] tensor. */
+  transpose(x: Tensor, name = 'transpose'): Tensor {
+    const [R, C] = [x.rows, x.cols], y = this.tensor([C, R]);
+    const I = this.own(this.be.upload(Float32Array.from({ length: R * R }, (_, k) => (k % (R + 1) === 0 ? 1 : 0))));
+    this.be.matmul(x.buf, I, y.buf, C, R, R, true, false, false);
+    return this.record(name, [x], y, () => this.be.matmul(I, y.grad!, this.g(x)!, R, C, R, false, true, true));
+  }
+
+  /** A result computed elsewhere (e.g. a linear solve on the host), recorded so it can be shown;
+   *  no gradient flows through it. */
+  opaque(op: string, inputs: Tensor[], data: Float32Array, shape: number[]): Tensor {
+    const y = this.tensor(shape, this.be.upload(data));
+    const wasRecording = this.recording;
+    this.recording = false;
+    try { return this.record(op, inputs, y, () => {}); } finally { this.recording = wasRecording; }
   }
 
   /** |v| per row of a [E, 3] tensor, as sqrt(sum v^2 + eps). */

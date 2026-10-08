@@ -95,6 +95,19 @@ export interface Backend {
   /** Adam step on p with gradient g and moments m, v. */
   adam(p: Buf, g: Buf, m: Buf, v: Buf, n: number, lr: number, b1: number, b2: number, eps: number, t: number): void;
 
+  /** y[e, c] = spline_c(x[e]): cubic Hermite through values V[c, k] and slopes D[c, k] at x = k h
+   *  (zero beyond the last knot). */
+  spline(x: Buf, V: Buf, D: Buf, y: Buf, n: number, C: number, K: number, h: number): void;
+  splineGrad(x: Buf, V: Buf, D: Buf, dy: Buf, dx: Buf, n: number, C: number, K: number, h: number): void;
+  /** Real spherical harmonics Y_lm(u) up to lmax for rows u [n, 3]: y [n, (lmax+1)^2], column l^2 + l + m. */
+  sph(u: Buf, y: Buf, n: number, lmax: number): void;
+  sphGrad(u: Buf, dy: Buf, du: Buf, n: number, lmax: number): void;
+  /** SOAP power spectrum: for each of B blocks of A rows of x [B*A, (lmax+1)^2],
+   *  p[b, pair(a, a') (lmax+1) + l] = w pi sqrt(8 / (2l+1)) sum_m x[bA+a, lm] x[bA+a', lm] over a <= a',
+   *  w = sqrt(2) when a != a'. */
+  power(x: Buf, p: Buf, B: number, A: number, lmax: number): void;
+  powerGrad(x: Buf, dp: Buf, dx: Buf, B: number, A: number, lmax: number): void;
+
   /** Block-averaged rows x cols thumbnail of a [R, C] tensor plus summary statistics. */
   thumb(x: Buf, R: number, C: number, rows: number, cols: number): Promise<Thumb>;
 }

@@ -55,7 +55,7 @@ export interface Pass {
 
 export type ToWorker =
   | { type: 'init'; backend: 'webgpu' | 'cpu' | 'auto' }
-  | { type: 'loadModel'; id: string; kind: ModelKind; meta: any; weights: ArrayBuffer | null; label: string }
+  | { type: 'loadModel'; id: string; kind: ModelKind; meta: any; weights: ArrayBuffer | null; label: string; activate: boolean }
   | { type: 'use'; id: string }
   | { type: 'evaluate'; system: System; selected: number; mode: ForceMode };
 
@@ -64,7 +64,7 @@ export type ForceMode = 'conservative' | 'direct' | 'both';
 
 export type FromWorker =
   | { type: 'ready'; backend: string; adapter: string }
-  | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number; hasNC: boolean }
+  | { type: 'model'; id: string; kind: ModelKind; label: string; meta: any; nParams: number; hasNC: boolean; activate: boolean }
   | { type: 'pass'; pass: Pass }
   | { type: 'progress'; text: string }
   | { type: 'error'; text: string };

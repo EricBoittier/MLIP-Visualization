@@ -14,6 +14,11 @@
   "weights": "ani-2x.safetensors"
  },
  {
+  "name": "krr-soap",
+  "kind": "krr",
+  "label": "KRR / SOAP (fitted here)"
+ },
+ {
   "name": "pet-mols-s-v1.0",
   "kind": "pet",
   "label": "PET-MOLS S v1.0",

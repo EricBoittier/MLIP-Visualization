@@ -10,6 +10,7 @@
     <header>
       <div class="brand">MLIP<span>viz</span></div>
       <label>Model <select id="model"></select></label>
+      <label id="teacher-wrap" hidden title="The model whose energies KRR is fitted to">Teacher <select id="teacher"></select></label>
       <label class="file">Open model…<input id="model-files" type="file" accept=".json,.safetensors" multiple /></label>
       <label>Structure <select id="structure"></select></label>
       <label class="file">Open .xyz…<input id="xyz-file" type="file" accept=".xyz,.extxyz" /></label>

@@ -319,7 +319,9 @@ const setSystem = (s: System, restart = true) => {
   system = s;
   selected = Math.min(selected, s.numbers.length - 1);
   if (restart) { timeline.seek(0); autoplay = true; }
-  evaluate();
+  // KRR is fitted to the structure: a new structure means a new fit (a rattle does not)
+  if (restart && active?.kind === 'krr') loadModel(active);
+  else evaluate();
 };
 $<HTMLSelectElement>('force-mode').onchange = () => { autoplay = true; timeline.seek(0); evaluate(); };
 structSel.onchange = () => { selected = 0; setSystem(PRESETS[structSel.value]); };
@@ -333,15 +335,30 @@ $('rattle').onclick = () => {
   setSystem({ ...system, positions: system.positions.map((p) => p.map((x) => x + 0.06 * (Math.random() * 2 - 1))) }, false);
 };
 
-// models/index.json: [{ name, kind, label, meta, weights }]; weights may be absent (e.g. KRR)
-interface ModelEntry { name: string; kind: ModelKind; label?: string; meta?: string; weights?: string }
-const modelSel = $<HTMLSelectElement>('model');
+// models/index.json: [{ name, kind, label, meta, weights, params }]. KRR has no files: it is fitted
+// here, on the current structure, against a teacher model.
+interface ModelEntry { name: string; kind: ModelKind; label?: string; meta?: string; weights?: string; params?: any }
+const modelSel = $<HTMLSelectElement>('model'), teacherSel = $<HTMLSelectElement>('teacher');
 let entries: ModelEntry[] = [];
-async function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer) {
-  status(`loading ${e.label ?? e.name}…`);
-  const m = meta0 ?? (e.meta ? await (await fetch(stem(e.meta))).json() : {});
-  const w = weights0 ?? (e.weights ? await (await fetch(stem(e.weights))).arrayBuffer() : null);
-  send({ type: 'loadModel', id: e.name, kind: e.kind, meta: m, weights: w, label: e.label ?? e.name }, w ? [w] : []);
+const loaded = new Set<string>(); // model ids the worker holds
+const waiting = new Map<string, () => void>(); // model id -> resolve, for loads we await
+let active: ModelEntry | null = null;
+
+function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate = true): Promise<void> {
+  return (async () => {
+    if (e.kind === 'krr') {
+      const t = entries.find((x) => x.name === teacherSel.value) ?? entries.find((x) => x.kind !== 'krr')!;
+      if (!loaded.has(t.name)) await loadModel(t, undefined, undefined, false);
+      status(`fitting ${e.label ?? e.name} to ${t.label ?? t.name} on this structure…`);
+      meta0 = { kind: 'krr', ...e.params, teacher: t.name, teacherLabel: t.label ?? t.name, system };
+    } else status(`loading ${e.label ?? e.name}…`);
+    const m = meta0 ?? (e.meta ? await (await fetch(stem(e.meta))).json() : {});
+    const w = weights0 ?? (e.weights ? await (await fetch(stem(e.weights))).arrayBuffer() : null);
+    const done = new Promise<void>((r) => waiting.set(e.name, r));
+    if (activate) active = e;
+    send({ type: 'loadModel', id: e.name, kind: e.kind, meta: m, weights: w, label: e.label ?? e.name, activate }, w ? [w] : []);
+    await done;
+  })();
 }
 async function listModels() {
   try { entries = await (await fetch('models/index.json')).json(); } catch { entries = []; }
@@ -352,8 +369,14 @@ async function listModels() {
     entries.push({ name: q, kind: 'pet', label: q.split('/').pop(), meta: `${q}.json`, weights: `${q}.safetensors` });
   }
   modelSel.innerHTML = entries.map((m) => `<option value="${m.name}">${m.label ?? m.name} · ${UIS[m.kind]?.family ?? m.kind}</option>`).join('');
+  teacherSel.innerHTML = entries.filter((m) => m.kind !== 'krr').map((m) => `<option value="${m.name}">${m.label ?? m.name}</option>`).join('');
   if (q) modelSel.value = q;
-  modelSel.onchange = () => loadModel(entries.find((m) => m.name === modelSel.value)!);
+  modelSel.onchange = () => {
+    const e = entries.find((m) => m.name === modelSel.value)!;
+    $('teacher-wrap').hidden = e.kind !== 'krr';
+    loadModel(e);
+  };
+  teacherSel.onchange = () => active?.kind === 'krr' && loadModel(active);
   modelSel.onchange(new Event('change'));
 }
 const stem = (name: string) => (/^https?:/.test(name) ? name : `models/${name}`);
@@ -363,7 +386,9 @@ $<HTMLInputElement>('model-files').onchange = async (e) => {
   if (!j || !w) { status('<b>Pick both files</b> of a converted model: <code>name.json</code> and <code>name.safetensors</code>'); return; }
   const meta1 = JSON.parse(await j.text());
   const kind: ModelKind = meta1.architecture === 'pet' ? 'pet' : meta1.kind ?? 'pet';
-  await loadModel({ name: j.name.replace(/\.json$/, ''), kind }, meta1, await w.arrayBuffer());
+  const entry: ModelEntry = { name: j.name.replace(/\.json$/, ''), kind, label: j.name.replace(/\.json$/, '') };
+  if (!entries.some((x) => x.name === entry.name)) entries.push(entry);
+  await loadModel(entry, meta1, await w.arrayBuffer());
 };
 
 function status(html: string) { $('status').innerHTML = html; }
@@ -376,6 +401,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     status(backend);
     listModels();
   } else if (m.type === 'model') {
+    loaded.add(m.id);
+    waiting.get(m.id)?.();
+    waiting.delete(m.id);
+    if (!m.activate) return;
     meta = m.meta;
     hasNC = m.hasNC;
     const u = (ui = UIS[m.kind]!);

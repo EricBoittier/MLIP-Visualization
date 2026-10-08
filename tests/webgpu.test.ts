@@ -63,6 +63,20 @@ describe('WebGPU kernels', () => {
     const z = g.add(g.unary('pow', g.add(g.unary('square', x), g.constant(new Float32Array([0.1]), [1])), 3.7), g.unary('celu', g.scale(x, 2), 0.1));
     return { out: g.add(y, z), inputs: [x] };
   }));
+  it('spline / spherical harmonics / power spectrum / transpose', () => compare((g) => {
+    const K = 30, C = 5, h = 0.2;
+    const V = g.constant(Float32Array.from({ length: C * K }, (_, i) => Math.sin(i * 0.37)), [C, K]);
+    const D = g.constant(Float32Array.from({ length: C * K }, (_, i) => Math.cos(i * 0.21)), [C, K]);
+    const r = g.constant(Float32Array.from({ length: 7 }, (_, i) => 0.3 + i * 0.71), [7]); r.requiresGrad = true;
+    const v = T(g, [7, 3], 31);
+    const u = g.div(v, g.rowNorm(v));
+    const Y = g.sph(u, 4);
+    const S = g.spline(r, V, D, h);
+    // three "atoms" of A = 2 density rows, built from both
+    const rows = g.linear(g.concatCols([Y, S]), g.constant(rand(25 * 30, 33), [25, 30]));
+    const P = g.power(g.reshape(g.sliceCols(rows, 0, 25), [7, 25]), 1, 7, 4);
+    return { out: g.add(g.transpose(g.transpose(P)), g.scale(P, 0.5)), inputs: [r, v] };
+  }));
   it('column broadcast', () => compare((g) => {
     const a = T(g, [11, 6], 22), b = T(g, [1, 6], 23);
     return { out: g.mul(g.sub(a, b), g.add(a, b)), inputs: [a, b] };

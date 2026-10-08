@@ -81,10 +81,11 @@ async function handle(msg: ToWorker) {
     case 'loadModel': {
       const m = await createModel(be, msg.kind, msg.meta, msg.weights, { models, progress: (text) => post({ type: 'progress', text }) });
       models.set(msg.id, m);
-      active = m;
-      lastTopo = '';
+      if (msg.activate) { active = m; lastTopo = ''; }
       const nParams = [...m.params.values()].reduce((s, t) => s + t.size, 0);
-      post({ type: 'model', id: msg.id, kind: m.kind, label: msg.label, meta: msg.meta, nParams, hasNC: !!m.hasNC });
+      // a fitted model reports how the fit went (and the structure stays here)
+      const meta = (m as any).report ? { ...msg.meta, system: undefined, report: (m as any).report, elements: m.elements } : msg.meta;
+      post({ type: 'model', id: msg.id, kind: m.kind, label: msg.label, meta, nParams, hasNC: !!m.hasNC, activate: msg.activate });
       break;
     }
     case 'use':

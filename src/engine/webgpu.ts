@@ -491,6 +491,134 @@ ${idx1}
   v[i] = p.b2 * v[i] + (1.0 - p.b2) * gr[i] * gr[i];
   w[i] -= p.lr * (m[i] / p.c1) / (sqrt(v[i] / p.c2) + p.eps);
 }`,
+  spline: `
+struct P { n: u32, C: u32, K: u32, h: f32, grad: u32 }
+@group(0) @binding(0) var<storage, read> x: array<f32>;
+@group(0) @binding(1) var<storage, read> V: array<f32>;
+@group(0) @binding(2) var<storage, read> D: array<f32>;
+@group(0) @binding(3) var<storage, read> dy: array<f32>;
+@group(0) @binding(4) var<storage, read_write> y: array<f32>; // values, or dx
+@group(0) @binding(5) var<uniform> p: P;
+${idx1}
+fn herm(c: u32, xv: f32) -> vec2f {
+  let t = xv / p.h; let kf = floor(t);
+  if (kf < 0.0 || kf >= f32(p.K - 1u)) { return vec2f(0.0, 0.0); }
+  let k = u32(kf); let s = t - kf; let o = c * p.K + k;
+  let s2 = s * s; let s3 = s2 * s;
+  let v = (2.0 * s3 - 3.0 * s2 + 1.0) * V[o] + (s3 - 2.0 * s2 + s) * p.h * D[o] + (-2.0 * s3 + 3.0 * s2) * V[o + 1u] + (s3 - s2) * p.h * D[o + 1u];
+  let dv = ((6.0 * s2 - 6.0 * s) * V[o] + (3.0 * s2 - 4.0 * s + 1.0) * p.h * D[o] + (-6.0 * s2 + 6.0 * s) * V[o + 1u] + (3.0 * s2 - 2.0 * s) * p.h * D[o + 1u]) / p.h;
+  return vec2f(v, dv);
+}
+@compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  if (p.grad == 0u) {
+    let i = gidx(g, nw); if (i >= p.n * p.C) { return; }
+    y[i] = herm(i % p.C, x[i / p.C]).x;
+  } else {
+    let e = gidx(g, nw); if (e >= p.n) { return; }
+    var s = 0.0;
+    for (var c = 0u; c < p.C; c++) { s += dy[e * p.C + c] * herm(c, x[e]).y; }
+    y[e] += s;
+  }
+}`,
+  sph: `
+struct P { n: u32, L: u32, grad: u32 }
+@group(0) @binding(0) var<storage, read> u: array<f32>;
+@group(0) @binding(1) var<storage, read> dy: array<f32>;
+@group(0) @binding(2) var<storage, read_write> y: array<f32>; // Y, or du
+@group(0) @binding(3) var<uniform> p: P;
+${idx1}
+const PI = 3.14159265358979;
+@compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let e = gidx(g, nw); if (e >= p.n) { return; }
+  let x = u[3u * e]; let yy = u[3u * e + 1u]; let z = u[3u * e + 2u];
+  let M = (p.L + 1u) * (p.L + 1u);
+  var C: array<f32, 7>; var S: array<f32, 7>; var Cx: array<f32, 7>; var Cy: array<f32, 7>; var Sx: array<f32, 7>; var Sy: array<f32, 7>;
+  C[0] = 1.0; S[0] = 0.0; Cx[0] = 0.0; Cy[0] = 0.0; Sx[0] = 0.0; Sy[0] = 0.0;
+  for (var m = 0u; m < p.L; m++) {
+    C[m + 1u] = x * C[m] - yy * S[m]; S[m + 1u] = x * S[m] + yy * C[m];
+    Cx[m + 1u] = C[m] + x * Cx[m] - yy * Sx[m]; Cy[m + 1u] = x * Cy[m] - S[m] - yy * Sy[m];
+    Sx[m + 1u] = S[m] + x * Sx[m] + yy * Cx[m]; Sy[m + 1u] = x * Sy[m] + C[m] + yy * Cy[m];
+  }
+  var gx = 0.0; var gy = 0.0; var gz = 0.0;
+  for (var m = 0u; m <= p.L; m++) {
+    var q = 1.0; var d = 0.0; var qPrev = 0.0; var dPrev = 0.0;
+    for (var k = 1u; k + 1u <= 2u * m; k += 2u) { q *= f32(k); }
+    for (var l = m; l <= p.L; l++) {
+      if (l > m) {
+        var qn = 0.0; var dn = 0.0;
+        if (l == m + 1u) { qn = f32(2u * m + 1u) * z * q; dn = f32(2u * m + 1u) * q; }
+        else {
+          qn = (f32(2u * l - 1u) * z * q - f32(l + m - 1u) * qPrev) / f32(l - m);
+          dn = (f32(2u * l - 1u) * (q + z * d) - f32(l + m - 1u) * dPrev) / f32(l - m);
+        }
+        qPrev = q; dPrev = d; q = qn; d = dn;
+      }
+      var fact = 1.0;
+      for (var k = l - m + 1u; k <= l + m; k++) { fact *= f32(k); }
+      var N = sqrt(f32(2u * l + 1u) / (4.0 * PI) / fact);
+      if (m > 0u) { N *= 1.41421356237; }
+      let ip = l * l + l + m; let im = l * l + l - m;
+      if (p.grad == 0u) {
+        y[e * M + ip] = N * q * C[m];
+        if (m > 0u) { y[e * M + im] = N * q * S[m]; }
+      } else {
+        let gp = dy[e * M + ip];
+        gx += gp * N * q * Cx[m]; gy += gp * N * q * Cy[m]; gz += gp * N * d * C[m];
+        if (m > 0u) {
+          let gm = dy[e * M + im];
+          gx += gm * N * q * Sx[m]; gy += gm * N * q * Sy[m]; gz += gm * N * d * S[m];
+        }
+      }
+    }
+  }
+  if (p.grad != 0u) { y[3u * e] += gx; y[3u * e + 1u] += gy; y[3u * e + 2u] += gz; }
+}`,
+  // forward: one thread per (block, pair, l)
+  power: `
+struct P { B: u32, A: u32, L: u32 }
+@group(0) @binding(0) var<storage, read> x: array<f32>;
+@group(0) @binding(1) var<storage, read_write> pw: array<f32>;
+@group(0) @binding(2) var<uniform> p: P;
+${idx1}
+const PI = 3.14159265358979;
+@compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let NP = p.A * (p.A + 1u) / 2u; let L1 = p.L + 1u; let M = L1 * L1;
+  let i = gidx(g, nw); if (i >= p.B * NP * L1) { return; }
+  let l = i % L1; let k = (i / L1) % NP; let b = i / (L1 * NP);
+  // pair index k -> (a, a2) with a <= a2
+  var a = 0u; var start = 0u;
+  loop { let rowLen = p.A - a; if (k < start + rowLen) { break; } start += rowLen; a++; }
+  let a2 = a + (k - start);
+  let ro = (b * p.A + a) * M; let r2 = (b * p.A + a2) * M;
+  var s = 0.0;
+  for (var q = l * l; q < (l + 1u) * (l + 1u); q++) { s += x[ro + q] * x[r2 + q]; }
+  var w = 1.0; if (a != a2) { w = 1.41421356237; }
+  pw[i] = w * PI * sqrt(8.0 / f32(2u * l + 1u)) * s;
+}`,
+  // backward: one thread per element of x
+  powerGrad: `
+struct P { B: u32, A: u32, L: u32 }
+@group(0) @binding(0) var<storage, read> x: array<f32>;
+@group(0) @binding(1) var<storage, read> dp: array<f32>;
+@group(0) @binding(2) var<storage, read_write> dx: array<f32>;
+@group(0) @binding(3) var<uniform> p: P;
+${idx1}
+const PI = 3.14159265358979;
+@compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let L1 = p.L + 1u; let M = L1 * L1; let NP = p.A * (p.A + 1u) / 2u;
+  let i = gidx(g, nw); if (i >= p.B * p.A * M) { return; }
+  let q = i % M; let row = i / M; let a = row % p.A; let b = row / p.A;
+  var l = 0u; loop { if ((l + 1u) * (l + 1u) > q) { break; } l++; }
+  let f = PI * sqrt(8.0 / f32(2u * l + 1u));
+  var s = 0.0;
+  for (var a2 = 0u; a2 < p.A; a2++) {
+    let lo = min(a, a2); let hi = max(a, a2);
+    let k = lo * p.A - (lo * (lo - 1u)) / 2u + (hi - lo);
+    var w = 1.41421356237; if (a == a2) { w = 2.0; }
+    s += w * f * dp[(b * NP + k) * L1 + l] * x[(b * p.A + a2) * M + q];
+  }
+  dx[i] += s;
+}`,
   // thumbnail cell = block mean, written at an offset into a shared output
   thumb: `
 struct P { R: u32, C: u32, rows: u32, cols: u32, o: u32 }
@@ -749,6 +877,28 @@ export class WebGPUBackend implements Backend {
   cutoffGrad(kind: CutoffKind, d: Buf, rc: Buf, dy: Buf, dd: Buf | null, drc: Buf | null, n: number, width: number) {
     if (n && (dd || drc)) this.run('cutoff', [d, rc, dy, dd, drc], [n, +(kind === 'bump'), F(width), 1, +!!dd, +!!drc], this.grid(n));
   }
+  spline(x: Buf, V: Buf, D: Buf, y: Buf, n: number, C: number, K: number, h: number) {
+    if (n * C) this.run('spline', [x, V, D, x, y], [n, C, K, F(h), 0], this.grid(n * C));
+  }
+  splineGrad(x: Buf, V: Buf, D: Buf, dy: Buf, dx: Buf, n: number, C: number, K: number, h: number) {
+    if (n) this.run('spline', [x, V, D, dy, dx], [n, C, K, F(h), 1], this.grid(n));
+  }
+  sph(u: Buf, y: Buf, n: number, lmax: number) {
+    if (lmax > 6) throw new Error('sph: lmax > 6 is not supported on WebGPU');
+    if (n) this.run('sph', [u, u, y], [n, lmax, 0], this.grid(n));
+  }
+  sphGrad(u: Buf, dy: Buf, du: Buf, n: number, lmax: number) {
+    if (n) this.run('sph', [u, dy, du], [n, lmax, 1], this.grid(n));
+  }
+  power(x: Buf, p: Buf, B: number, A: number, lmax: number) {
+    const n = B * ((A * (A + 1)) / 2) * (lmax + 1);
+    if (n) this.run('power', [x, p], [B, A, lmax], this.grid(n));
+  }
+  powerGrad(x: Buf, dp: Buf, dx: Buf, B: number, A: number, lmax: number) {
+    const n = B * A * (lmax + 1) ** 2;
+    if (n) this.run('powerGrad', [x, dp, dx], [B, A, lmax], this.grid(n));
+  }
+
   adam(p: Buf, g: Buf, m: Buf, v: Buf, n: number, lr: number, b1: number, b2: number, eps: number, t: number) {
     this.run('adam', [p, g, m, v], [n, F(lr), F(b1), F(b2), F(eps), F(1 - b1 ** t), F(1 - b2 ** t)], this.grid(n));
   }

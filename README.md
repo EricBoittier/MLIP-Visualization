@@ -13,8 +13,8 @@ Models:
 | model | family | status |
 |---|---|---|
 | PET (PET-MAD, PET-MOLS) | point edge transformer | runs, verified against metatrain |
-| ANI-2x | Behler–Parrinello network | in progress |
-| KRR with SOAP | kernel method, fitted in the browser | in progress |
+| ANI-2x | Behler–Parrinello network | runs, verified against TorchANI |
+| KRR with SOAP | kernel method, fitted in the browser to another model | runs; forces checked by finite differences |
 | PhysNet | message-passing network | in progress |
 
 MACE, SpookyNet and other equivariant models are left for later.
@@ -33,8 +33,12 @@ npm run dev
 Model weights are not in the repository. Convert them into `public/models/`:
 
 ```bash
-uv run scripts/convert_pet.py --model pet-mad-xs --out public/models/pet-mad-xs
+uv run scripts/convert_pet.py --model pet-mad-xs --out public/models/pet-mad-xs   # add --non-conservative for direct forces
+uv run scripts/convert_ani.py --out public/models/ani-2x
 ```
+
+KRR/SOAP needs no files: it is fitted in the browser, on rattled copies of the
+current structure labelled by another loaded model (the "teacher").
 
 `public/models/index.json` lists the models the app offers.
 
@@ -50,6 +54,7 @@ with the CPU ones (through Node's `webgpu` package).
 
 ## Credits
 
+ANI-2x is from [TorchANI](https://github.com/aiqm/torchani) (MIT).
 `scripts/convert_pet.py` comes from
 [pet-kokkos](https://github.com/EricBoittier/pet-kokkos). PET and PET-MAD are
 from the [lab-cosmo/upet](https://huggingface.co/lab-cosmo/upet) models

@@ -334,6 +334,71 @@ export class CpuBackend implements Backend {
     }
   }
 
+  spline(x: Buf, V: Buf, D: Buf, y: Buf, n: number, C: number, K: number, h: number) {
+    const X = f(x), Vv = f(V), Dd = f(D), Y = f(y);
+    for (let e = 0; e < n; e++) for (let c = 0; c < C; c++) Y[e * C + c] = hermite(Vv, Dd, c, K, h, X[e])[0];
+  }
+
+  splineGrad(x: Buf, V: Buf, D: Buf, dy: Buf, dx: Buf, n: number, C: number, K: number, h: number) {
+    const X = f(x), Vv = f(V), Dd = f(D), DY = f(dy), DX = f(dx);
+    for (let e = 0; e < n; e++) {
+      let g = 0;
+      for (let c = 0; c < C; c++) g += DY[e * C + c] * hermite(Vv, Dd, c, K, h, X[e])[1];
+      DX[e] += g;
+    }
+  }
+
+  sph(u: Buf, y: Buf, n: number, lmax: number) {
+    const U = f(u), Y = f(y), M = (lmax + 1) ** 2;
+    for (let e = 0; e < n; e++) {
+      const r = realSph(U[3 * e], U[3 * e + 1], U[3 * e + 2], lmax, false);
+      for (let k = 0; k < M; k++) Y[e * M + k] = r.y[k];
+    }
+  }
+
+  sphGrad(u: Buf, dy: Buf, du: Buf, n: number, lmax: number) {
+    const U = f(u), DY = f(dy), DU = f(du), M = (lmax + 1) ** 2;
+    for (let e = 0; e < n; e++) {
+      const r = realSph(U[3 * e], U[3 * e + 1], U[3 * e + 2], lmax, true);
+      for (let k = 0; k < M; k++) {
+        const g = DY[e * M + k];
+        DU[3 * e] += g * r.dx[k]; DU[3 * e + 1] += g * r.dy[k]; DU[3 * e + 2] += g * r.dz[k];
+      }
+    }
+  }
+
+  power(x: Buf, p: Buf, B: number, A: number, lmax: number) {
+    const X = f(x), P = f(p), M = (lmax + 1) ** 2, L = lmax + 1, NP = (A * (A + 1)) / 2;
+    for (let b = 0; b < B; b++) {
+      let k = 0;
+      for (let a = 0; a < A; a++) for (let a2 = a; a2 < A; a2++, k++) {
+        const w = a === a2 ? 1 : Math.SQRT2, ro = (b * A + a) * M, r2 = (b * A + a2) * M;
+        for (let l = 0; l < L; l++) {
+          let s = 0;
+          for (let q = l * l; q < (l + 1) * (l + 1); q++) s += X[ro + q] * X[r2 + q];
+          P[(b * NP + k) * L + l] = w * Math.PI * Math.sqrt(8 / (2 * l + 1)) * s;
+        }
+      }
+    }
+  }
+
+  powerGrad(x: Buf, dp: Buf, dx: Buf, B: number, A: number, lmax: number) {
+    const X = f(x), DP = f(dp), DX = f(dx), M = (lmax + 1) ** 2, L = lmax + 1, NP = (A * (A + 1)) / 2;
+    for (let b = 0; b < B; b++) {
+      let k = 0;
+      for (let a = 0; a < A; a++) for (let a2 = a; a2 < A; a2++, k++) {
+        const w = a === a2 ? 2 : Math.SQRT2, ro = (b * A + a) * M, r2 = (b * A + a2) * M;
+        for (let l = 0; l < L; l++) {
+          const g = DP[(b * NP + k) * L + l] * Math.PI * Math.sqrt(8 / (2 * l + 1));
+          for (let q = l * l; q < (l + 1) * (l + 1); q++) {
+            if (a === a2) DX[ro + q] += w * g * X[ro + q];
+            else { DX[ro + q] += w * g * X[r2 + q]; DX[r2 + q] += w * g * X[ro + q]; }
+          }
+        }
+      }
+    }
+  }
+
   adam(p: Buf, g: Buf, m: Buf, v: Buf, n: number, lr: number, b1: number, b2: number, eps: number, t: number) {
     const Pp = f(p), G = f(g), Mm = f(m), V = f(v);
     const c1 = 1 - b1 ** t, c2 = 1 - b2 ** t;
@@ -347,6 +412,57 @@ export class CpuBackend implements Backend {
   async thumb(x: Buf, R: number, C: number, rows: number, cols: number): Promise<Thumb> {
     return thumbOf(f(x), R, C, rows, cols);
   }
+}
+
+/** Cubic Hermite interpolation of curve c at x, and its slope. */
+export function hermite(V: Float32Array, D: Float32Array, c: number, K: number, h: number, x: number): [number, number] {
+  const t = x / h, k = Math.floor(t);
+  if (k < 0 || k >= K - 1) return [0, 0];
+  const s = t - k, o = c * K + k;
+  const s2 = s * s, s3 = s2 * s;
+  const h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2;
+  const v = h00 * V[o] + h10 * h * D[o] + h01 * V[o + 1] + h11 * h * D[o + 1];
+  const dv = ((6 * s2 - 6 * s) * V[o] + (3 * s2 - 4 * s + 1) * h * D[o] + (-6 * s2 + 6 * s) * V[o + 1] + (3 * s2 - 2 * s) * h * D[o + 1]) / h;
+  return [v, dv];
+}
+
+/** Orthonormal real spherical harmonics (no Condon-Shortley phase) of (x, y, z), assumed a unit
+ *  vector, and their derivatives with respect to x, y, z of the polynomial extension. */
+export function realSph(x: number, y: number, z: number, lmax: number, grad: boolean) {
+  const M = (lmax + 1) ** 2;
+  const out = { y: new Float64Array(M), dx: new Float64Array(M), dy: new Float64Array(M), dz: new Float64Array(M) };
+  // C_m + i S_m = (x + i y)^m, with derivatives
+  const C = [1], S = [0], Cx = [0], Cy = [0], Sx = [0], Sy = [0];
+  for (let m = 0; m < lmax; m++) {
+    C.push(x * C[m] - y * S[m]); S.push(x * S[m] + y * C[m]);
+    Cx.push(C[m] + x * Cx[m] - y * Sx[m]); Cy.push(x * Cy[m] - S[m] - y * Sy[m]);
+    Sx.push(S[m] + x * Sx[m] + y * Cx[m]); Sy.push(x * Sy[m] + C[m] + y * Cy[m]);
+  }
+  for (let m = 0; m <= lmax; m++) {
+    // Q_l^m(z) = P_l^m(z) / sin^m(theta), from l = m upwards
+    let qPrev = 0, dPrev = 0;
+    let q = 1;
+    for (let k = 1; k <= 2 * m - 1; k += 2) q *= k;
+    let d = 0;
+    for (let l = m; l <= lmax; l++) {
+      if (l > m) {
+        const qn = l === m + 1 ? (2 * m + 1) * z * q : ((2 * l - 1) * z * q - (l + m - 1) * qPrev) / (l - m);
+        const dn = l === m + 1 ? (2 * m + 1) * q : ((2 * l - 1) * (q + z * d) - (l + m - 1) * dPrev) / (l - m);
+        qPrev = q; dPrev = d; q = qn; d = dn;
+      }
+      let fact = 1;
+      for (let k = l - m + 1; k <= l + m; k++) fact *= k; // (l+m)!/(l-m)!
+      const N = Math.sqrt((2 * l + 1) / (4 * Math.PI) / fact) * (m ? Math.SQRT2 : 1);
+      const ip = l * l + l + m, im = l * l + l - m;
+      out.y[ip] = N * q * C[m];
+      if (m) out.y[im] = N * q * S[m];
+      if (grad) {
+        out.dx[ip] = N * q * Cx[m]; out.dy[ip] = N * q * Cy[m]; out.dz[ip] = N * d * C[m];
+        if (m) { out.dx[im] = N * q * Sx[m]; out.dy[im] = N * q * Sy[m]; out.dz[im] = N * d * S[m]; }
+      }
+    }
+  }
+  return out;
 }
 
 export function thumbOf(X: Float32Array, R: number, C: number, rows: number, cols: number): Thumb {

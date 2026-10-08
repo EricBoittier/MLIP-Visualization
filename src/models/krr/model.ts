@@ -38,7 +38,7 @@ export interface FitReport {
   ms: number;
 }
 
-type Log = (text: string) => void;
+type Log = (text: string, fraction?: number) => void;
 
 export class KRR implements Model {
   readonly kind = 'krr' as const;
@@ -83,14 +83,14 @@ export class KRR implements Model {
     // labels
     const energies: number[] = [];
     for (let s = 0; s < structures.length; s++) {
-      if (s % 8 === 0) log(`KRR: labelling structure ${s + 1}/${structures.length} with ${teacherName}…`);
+      if (s % 4 === 0) log(`KRR: labelling structure ${s + 1}/${structures.length} with ${teacherName}…`, 0.75 * (s / structures.length));
       const g = new Graph(this.be);
       const out = teacher.forward(g, structures[s], { forces: false });
       energies.push((await this.be.read(out.energy.buf))[0]);
       g.release();
     }
     // descriptors
-    log('KRR: SOAP power spectra of the training set…');
+    log('KRR: SOAP power spectra of the training set…', 0.75);
     const desc: Float32Array[] = [];
     for (const st of structures) {
       const g = new Graph(this.be);
@@ -126,6 +126,7 @@ export class KRR implements Model {
     this.sparse = Float32Array.from(sparse);
     this.sparseZ = Int32Array.from(sparseZ);
     const M = sparseZ.length;
+    log(`KRR: kernels and the solve for ${M} sparse environments…`, 0.88);
     // kernels (float64)
     const kern = (a: Float32Array, b: Float32Array) => { let d = 0; for (let f = 0; f < F; f++) d += a[f] * b[f]; return d ** this.h.zeta; };
     const sp = (t: number) => this.sparse.subarray(t * F, (t + 1) * F);
@@ -172,7 +173,7 @@ export class KRR implements Model {
     this.params.clear();
     this.params.set('sparse_points', this.constParam('sparse_points', this.sparse, [M, F]));
     this.params.set('alpha', this.constParam('alpha', this.alpha, [1, M]));
-    log(`KRR: fitted ${M} sparse environments on ${nTrain} structures; test RMSE ${(1000 * this.report.rmseTest).toFixed(2)} meV/atom`);
+    log(`KRR: fitted ${M} sparse environments on ${nTrain} structures; test RMSE ${(1000 * this.report.rmseTest).toFixed(2)} meV/atom`, 1);
   }
 
   private constParam(name: string, data: Float32Array, shape: number[]) {

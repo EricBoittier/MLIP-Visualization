@@ -82,7 +82,7 @@ async function handle(msg: ToWorker) {
       break;
     }
     case 'loadModel': {
-      const m = await createModel(be, msg.kind, msg.meta, msg.weights, { models, progress: (text) => post({ type: 'progress', text }) });
+      const m = await createModel(be, msg.kind, msg.meta, msg.weights, { models, progress: (text, fraction) => post({ type: 'progress', text, fraction }) });
       models.set(msg.id, m);
       if (msg.activate) { active = m; lastTopo = ''; }
       const nParams = [...m.params.values()].reduce((s, t) => s + t.size, 0);

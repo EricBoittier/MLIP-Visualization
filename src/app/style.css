@@ -1,0 +1,103 @@
+:root {
+  --bg: #0c0e13;
+  --panel: #12151c;
+  --line: #232835;
+  --text: #d7dbe4;
+  --muted: #8a93a6;
+  --value: #f99e29;
+  --value-neg: #3b82f5;
+  --grad: #a855f7;
+  --grad-pos: #22c55e;
+  --weight: #8cd1fa;
+  --attn: #ffdb52;
+  --accent: #f99e29;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+body > :not(header, main, footer) { position: fixed; }
+button, select, .file { font: inherit; color: var(--text); background: #1a1e28; border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover, .file:hover { border-color: #3a4256; }
+button.on { border-color: var(--accent); color: var(--accent); }
+.file input { display: none; }
+
+header { display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line);
+  background: var(--panel); flex-wrap: wrap; }
+header label { color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.brand { font-weight: 700; font-size: 18px; letter-spacing: 0.02em; margin-right: 8px; }
+.brand span { color: var(--accent); }
+#status { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 13px; }
+#status b { color: var(--text); font-weight: 600; }
+
+main { display: grid; grid-template-columns: 330px 1fr 420px; min-height: 0; }
+#walk { border-right: 1px solid var(--line); background: var(--panel); padding: 16px 18px; overflow-y: auto; }
+#chapter-phase { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--value); }
+#chapter-phase.bwd { color: var(--grad); }
+#chapter-title { margin: 2px 0 8px; font-size: 17px; line-height: 1.35; }
+#chapter-text { color: #c3c9d5; min-height: 96px; }
+#chapter-text p { margin: 0 0 10px; }
+#chapter-text .g { color: var(--grad); }
+#chapter-title i { color: #5c6578; font-style: normal; }
+#diagram { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+#diagram svg { display: block; overflow: visible; font-family: inherit; }
+#diagram .box { cursor: pointer; }
+#diagram .box:hover rect.b { stroke-width: 1.8; }
+#diagram rect.b { stroke-width: 1; transition: stroke-width 0.15s; }
+#diagram rect.b.on { stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.35)); }
+#diagram .t { font-size: 11px; font-weight: 650; }
+#diagram .s { font-size: 9.5px; fill: #8a93a6; }
+#diagram .tg { font-size: 13px; fill: #8a93a6; text-anchor: middle; cursor: pointer; }
+#diagram .tg:hover { fill: #fff; }
+#diagram .arrow { stroke: #7b8496; stroke-width: 1.2; fill: none; }
+#diagram .back { stroke: #a855f7; stroke-width: 1.4; fill: none; stroke-dasharray: 4 3; }
+#diagram .back-t { font-size: 10px; fill: #a855f7; text-anchor: middle; }
+#diagram .io { fill: #1a1e28; stroke: #3a4256; }
+#diagram .io-t { font-size: 11px; fill: #c3c9d5; text-anchor: middle; }
+#model-card { margin-top: 18px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+#model-card code { color: var(--text); }
+
+#net { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#net canvas { display: block; }
+#net .labels { position: absolute; inset: 0; pointer-events: none; }
+.blabel { font-size: 11px; color: #c9cfdb; white-space: nowrap; padding-right: 4px; text-align: right; line-height: 1.2; }
+.blabel b { font-weight: 600; display: block; }
+.blabel span { color: #6f788b; font-size: 10px; }
+.blabel.head { color: var(--attn); }
+.chapter-label { font-size: 22px; font-weight: 700; color: #e6e9ef; white-space: nowrap; opacity: 0.85; }
+#legend { position: absolute; left: 12px; bottom: 10px; display: flex; gap: 14px; font-size: 12px; color: var(--muted);
+  background: rgba(12, 14, 19, 0.75); padding: 4px 10px; border-radius: 6px; }
+.sw { display: inline-block; width: 22px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.sw.value { background: linear-gradient(90deg, var(--value-neg), #2b303b, var(--value)); }
+.sw.grad { background: linear-gradient(90deg, var(--grad), #2b303b, var(--grad-pos)); }
+.sw.weight { background: linear-gradient(90deg, #5a6bd9, #2b303b, var(--weight)); }
+.sw.attn { background: linear-gradient(90deg, #2b303b, var(--attn)); }
+#net-buttons { position: absolute; right: 12px; top: 10px; display: flex; gap: 6px; }
+#tooltip { position: absolute; z-index: 5; pointer-events: none; background: rgba(18, 21, 28, 0.95); border: 1px solid #343b4c;
+  border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45; max-width: 340px; }
+#tooltip .k { color: var(--muted); }
+#tooltip .v { color: var(--value); font-variant-numeric: tabular-nums; }
+#tooltip .gv { color: var(--grad); font-variant-numeric: tabular-nums; }
+
+#right { border-left: 1px solid var(--line); display: grid; grid-template-rows: minmax(0, 1fr) auto auto; background: var(--panel); min-height: 0; }
+#chemiscope { position: relative; min-height: 0; background: #fff; }
+#graph-caption { padding: 8px 12px; font-size: 12.5px; color: #b8bfcc; border-top: 1px solid var(--line); min-height: 52px; }
+#graph-caption b { color: var(--text); }
+#energies { padding: 6px 12px 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#energies b { color: var(--text); }
+
+footer { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--panel); }
+footer button { min-width: 38px; }
+.speed { color: var(--muted); display: flex; align-items: center; gap: 6px; font-size: 13px; }
+#speed-val { width: 64px; font-variant-numeric: tabular-nums; }
+#scrub { position: relative; flex: 1; height: 34px; }
+#timeline { width: 100%; height: 100%; cursor: pointer; display: block; }
+#scrub-label { position: absolute; right: 6px; top: -18px; font-size: 11px; color: var(--muted); }
+
+@media (max-width: 1100px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 50vh 40vh auto; overflow-y: auto; }
+  #walk { order: 3; border: 0; }
+  #right { order: 2; }
+}

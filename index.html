@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PETweb</title>
+    <meta name="description" content="A PET machine-learning interatomic potential running in your browser, with every forward and backward pass visualised." />
+  </head>
+  <body>
+    <header>
+      <div class="brand">PET<span>web</span></div>
+      <label>Model <select id="model"></select></label>
+      <label class="file">Open model…<input id="model-files" type="file" accept=".json,.safetensors" multiple /></label>
+      <label>Structure <select id="structure"></select></label>
+      <label class="file">Open .xyz…<input id="xyz-file" type="file" accept=".xyz,.extxyz" /></label>
+      <button id="rattle" title="Displace every atom a little and run a new pass">Rattle</button>
+      <div id="status"></div>
+    </header>
+    <main>
+      <aside id="walk">
+        <div id="chapter-head"><span id="chapter-phase"></span><h2 id="chapter-title">Loading…</h2></div>
+        <div id="chapter-text"></div>
+        <div id="diagram"></div>
+        <div id="model-card"></div>
+      </aside>
+      <section id="net">
+        <div id="tooltip" hidden></div>
+        <div id="legend">
+          <span><i class="sw value"></i>activation</span>
+          <span><i class="sw grad"></i>gradient ∂E/∂·</span>
+          <span><i class="sw weight"></i>weights</span>
+          <span><i class="sw attn"></i>attention</span>
+        </div>
+        <div id="net-buttons">
+          <button id="follow" class="on" title="Camera follows the active op">Follow</button>
+          <button id="overview" title="Show the whole network">Overview</button>
+        </div>
+      </section>
+      <aside id="right">
+        <div id="chemiscope"></div>
+        <div id="graph-caption"></div>
+        <div id="energies"></div>
+      </aside>
+    </main>
+    <footer>
+      <button id="restart" title="Back to the start (Home)">⏮</button>
+      <button id="prev" title="Previous op (←)">◀</button>
+      <button id="play" title="Play / pause (space)">▶</button>
+      <button id="next" title="Next op (→)">▶|</button>
+      <button id="end" title="Show the whole pass (End)">⏭</button>
+      <label class="speed">Speed <input id="speed" type="range" min="0" max="1" step="0.01" value="0.35" /><span id="speed-val"></span></label>
+      <div id="scrub"><canvas id="timeline"></canvas><div id="scrub-label"></div></div>
+    </footer>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>

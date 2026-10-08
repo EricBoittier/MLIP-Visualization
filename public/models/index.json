@@ -1,0 +1,4 @@
+[
+  { "name": "pet-mad-xs", "kind": "pet", "label": "PET-MAD XS", "meta": "pet-mad-xs.json", "weights": "pet-mad-xs.safetensors" },
+  { "name": "pet-mols-s-v1.0", "kind": "pet", "label": "PET-MOLS S v1.0", "meta": "pet-mols-s-v1.0.json", "weights": "pet-mols-s-v1.0.safetensors" }
+]

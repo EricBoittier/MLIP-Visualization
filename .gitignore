@@ -1,0 +1,8 @@
+node_modules/
+dist/
+public/models/*
+!public/models/README.md
+*.log
+.DS_Store
+.DS_Store
+!public/models/index.json

@@ -6,7 +6,7 @@ import { UIS } from '../models/uis';
 import type { System } from '../common/structure';
 import { GraphView } from '../viz/graph';
 import { Diagram } from '../viz/diagram';
-import { ancestors, type Mod, MOD_COLOR } from '../viz/modules';
+import { ancestors, type Mod, MOD_COLOR, walk } from '../viz/modules';
 import { type Hit, NetworkView } from '../viz/network';
 import { Timeline } from '../viz/timeline';
 import type { FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
@@ -323,6 +323,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     pass = p;
     selected = p.trace.selected;
     net.show(ops, p.trace);
+    if (fresh && ui?.collapse && net.root) net.setCollapsed([...walk(net.root)].filter(ui.collapse).map((x) => x.id));
     if (fresh) buildChapters();
     graph.setPass(p, ops);
     const ms = p.trace.ms;

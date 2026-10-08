@@ -7,7 +7,7 @@ import { CpuBackend } from '../src/engine/cpu';
 import { Graph, type Tensor } from '../src/engine/tensor';
 import { WebGPUBackend } from '../src/engine/webgpu';
 import { evaluate } from '../src/models/pet/model';
-import { loadModel } from './util';
+import { loadANI, loadModel } from './util';
 
 Object.assign(globalThis, globals);
 let gpu: WebGPUBackend;
@@ -57,6 +57,16 @@ describe('WebGPU kernels', () => {
     const y = g.add(g.add(g.silu(x), g.sigmoid(x)), g.add(g.unary('tanh', x), g.unary('clamp', x, -0.3, 0.4)));
     return { out: g.add(y, g.unary('logclamp', g.unary('square', x), 1e-3)), inputs: [x] };
   }));
+  it('acos / cos / pow / celu', () => compare((g) => {
+    const x = T(g, [9, 7], 21);
+    const y = g.add(g.unary('acos', g.scale(x, 0.9)), g.unary('cos', g.scale(x, 3)));
+    const z = g.add(g.unary('pow', g.add(g.unary('square', x), g.constant(new Float32Array([0.1]), [1])), 3.7), g.unary('celu', g.scale(x, 2), 0.1));
+    return { out: g.add(y, z), inputs: [x] };
+  }));
+  it('column broadcast', () => compare((g) => {
+    const a = T(g, [11, 6], 22), b = T(g, [1, 6], 23);
+    return { out: g.mul(g.sub(a, b), g.add(a, b)), inputs: [a, b] };
+  }));
   it('binary broadcast', () => compare((g) => {
     const a = T(g, [9, 5], 5), b = T(g, [9], 6), c = T(g, [1], 7), d = T(g, [9, 5], 8);
     return { out: g.div(g.mul(g.sub(a, b), c), g.add(g.unary('square', d), g.constant(new Float32Array([1]), [1]))), inputs: [a, b, c, d] };
@@ -89,7 +99,7 @@ describe('WebGPU kernels', () => {
 });
 
 describe('WebGPU PET vs CPU', () => {
-  const refs = readdirSync("tests/reference").filter((f: string) => f.endsWith('.json'));
+  const refs = readdirSync('tests/reference').filter((f: string) => f.startsWith('pet-'));
   for (const file of refs) {
     const ref = JSON.parse(readFileSync(`tests/reference/${file}`, 'utf8'));
     it(`${ref.model} ${ref.case}`, async () => {
@@ -105,4 +115,24 @@ describe('WebGPU PET vs CPU', () => {
       expect(dF).toBeLessThan(5e-4);
     });
   }
+});
+
+describe('WebGPU ANI-2x vs CPU', () => {
+  it('ethanol and the periodic water box', async () => {
+    const cpu = loadANI(), gpuModel = loadANI(gpu);
+    for (const file of ['ani-2x_ethanol.json', 'ani-2x_water_pbc.json', 'ani-2x_sulfur_chlorine.json']) {
+      const ref = JSON.parse(readFileSync(`tests/reference/${file}`, 'utf8'));
+      const sys = { numbers: ref.atomic_numbers, positions: ref.positions, cell: ref.cell, pbc: ref.pbc };
+      const res = [];
+      for (const m of [cpu, gpuModel]) {
+        const g = new Graph(m.be);
+        const out = m.forward(g, sys, { forces: true });
+        g.backward(out.energy);
+        res.push([(await m.be.read(out.energy.buf))[0], await m.be.read(out.positions.grad!)] as const);
+        g.release();
+      }
+      expect(Math.abs(res[0][0] - res[1][0])).toBeLessThan(2e-6 * Math.abs(ref.energy));
+      expect(maxRel(res[1][1], res[0][1])).toBeLessThan(1e-4);
+    }
+  });
 });

@@ -1,14 +1,14 @@
 // WebGPU backend: every kernel of backend.ts as a WGSL compute shader. Commands
 // are recorded into one encoder and submitted when a result is read back, so a
 // whole forward + backward pass is one submission.
-import type { Backend, Binary, Buf, CutoffKind, NormKind, SeqLayout, Thumb, Unary } from './backend';
+import type { Backend, Binary, BMode, Buf, CutoffKind, NormKind, SeqLayout, Thumb, Unary } from './backend';
 
 type GBuf = Buf & { g: GPUBuffer; cap: number };
 const gb = (b: Buf) => (b as GBuf).g;
 
-const UNARY: Record<Unary, number> = { silu: 0, sigmoid: 1, exp: 2, square: 3, sqrt: 4, neg: 5, tanh: 6, logclamp: 7, clamp: 8 };
+const UNARY: Record<Unary, number> = { silu: 0, sigmoid: 1, exp: 2, square: 3, sqrt: 4, neg: 5, tanh: 6, logclamp: 7, clamp: 8, acos: 9, cos: 10, pow: 11, celu: 12 };
 const BINARY: Record<Binary, number> = { add: 0, sub: 1, mul: 2, div: 3 };
-const BMODE = { full: 0, scalar: 1, row: 2 } as const;
+const BMODE = { full: 0, scalar: 1, row: 2, col: 3 } as const;
 const WG = 256;
 
 // --------------------------------------------------------------------------- WGSL
@@ -103,7 +103,11 @@ fn sig(v: f32) -> f32 { return 1.0 / (1.0 + exp(-v)); }
     case 5u: { r = -v; }
     case 6u: { r = tanh(clamp(v, -20.0, 20.0)); }
     case 7u: { r = log(max(v, p.a)); }
-    default: { r = min(max(v, p.a), p.b); }
+    case 8u: { r = min(max(v, p.a), p.b); }
+    case 9u: { r = acos(v); }
+    case 10u: { r = cos(v); }
+    case 11u: { r = pow(v, p.a); }
+    default: { r = select(p.a * (exp(v / p.a) - 1.0), v, v > 0.0); }
   }
   y[i] = r;
 }`,
@@ -128,7 +132,11 @@ fn sig(v: f32) -> f32 { return 1.0 / (1.0 + exp(-v)); }
     case 5u: { d = -1.0; }
     case 6u: { d = 1.0 - o * o; }
     case 7u: { d = select(0.0, 1.0 / v, v >= p.a); }
-    default: { d = select(0.0, 1.0, v >= p.a && v <= p.b); }
+    case 8u: { d = select(0.0, 1.0, v >= p.a && v <= p.b); }
+    case 9u: { d = -1.0 / sqrt(1.0 - v * v); }
+    case 10u: { d = -sin(v); }
+    case 11u: { d = p.a * pow(v, p.a - 1.0); }
+    default: { d = select(exp(v / p.a), 1.0, v > 0.0); }
   }
   dx[i] += d * dy[i];
 }`,
@@ -141,7 +149,7 @@ struct P { n: u32, op: u32, mode: u32, inner: u32 }
 ${idx1}
 @compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
   let i = gidx(g, nw); if (i >= p.n) { return; }
-  var j = i; if (p.mode == 1u) { j = 0u; } else if (p.mode == 2u) { j = i / p.inner; }
+  var j = i; if (p.mode == 1u) { j = 0u; } else if (p.mode == 2u) { j = i / p.inner; } else if (p.mode == 3u) { j = i % p.inner; }
   let u = a[i]; let v = b[j]; var r = 0.0;
   switch p.op { case 0u: { r = u + v; } case 1u: { r = u - v; } case 2u: { r = u * v; } default: { r = u / v; } }
   y[i] = r;
@@ -158,7 +166,7 @@ struct P { n: u32, op: u32, mode: u32, inner: u32, wantA: u32, wantB: u32 }
 ${idx1}
 @compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
   let i = gidx(g, nw); if (i >= p.n) { return; }
-  var j = i; if (p.mode == 1u) { j = 0u; } else if (p.mode == 2u) { j = i / p.inner; }
+  var j = i; if (p.mode == 1u) { j = 0u; } else if (p.mode == 2u) { j = i / p.inner; } else if (p.mode == 3u) { j = i % p.inner; }
   let u = a[i]; let v = b[j]; let gr = dy[i];
   if (p.wantA != 0u) {
     var d = gr; if (p.op == 2u) { d = gr * v; } else if (p.op == 3u) { d = gr / v; }
@@ -171,7 +179,7 @@ ${idx1}
 }`,
   // db for broadcast b: one thread per element of b
   binaryGradB: `
-struct P { nb: u32, op: u32, inner: u32 }
+struct P { nb: u32, op: u32, count: u32, stride: u32, step: u32 }
 @group(0) @binding(0) var<storage, read> a: array<f32>;
 @group(0) @binding(1) var<storage, read> b: array<f32>;
 @group(0) @binding(2) var<storage, read> dy: array<f32>;
@@ -181,8 +189,8 @@ ${idx1}
 @compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
   let j = gidx(g, nw); if (j >= p.nb) { return; }
   let v = b[j]; var s = 0.0;
-  for (var k = 0u; k < p.inner; k++) {
-    let i = j * p.inner + k; let gr = dy[i];
+  for (var k = 0u; k < p.count; k++) {
+    let i = j * p.stride + k * p.step; let gr = dy[i];
     var d = gr; if (p.op == 1u) { d = -gr; } else if (p.op == 2u) { d = gr * a[i]; } else if (p.op == 3u) { d = -gr * a[i] / (v * v); }
     s += d;
   }
@@ -685,17 +693,18 @@ export class WebGPUBackend implements Backend {
   unaryGrad(op: Unary, x: Buf, y: Buf, dy: Buf, dx: Buf, n: number, a: number, b: number) {
     if (n) this.run('unaryGrad', [x, y, dy, dx], [n, UNARY[op], F(a), F(b)], this.grid(n));
   }
-  binary(op: Binary, a: Buf, b: Buf, y: Buf, n: number, mode: 'full' | 'scalar' | 'row', inner: number) {
+  binary(op: Binary, a: Buf, b: Buf, y: Buf, n: number, mode: BMode, inner: number) {
     if (n) this.run('binary', [a, b, y], [n, BINARY[op], BMODE[mode], inner], this.grid(n));
   }
   binaryGrad(op: Binary, a: Buf, b: Buf, dy: Buf, da: Buf | null, db: Buf | null, n: number,
-             mode: 'full' | 'scalar' | 'row', inner: number) {
+             mode: BMode, inner: number) {
     if (!n) return;
     if (da || (db && mode === 'full'))
       this.run('binaryGradA', [a, b, dy, da, mode === 'full' ? db : null], [n, BINARY[op], BMODE[mode], inner, +!!da, +(!!db && mode === 'full')], this.grid(n));
     if (db && mode !== 'full') {
-      const nb = mode === 'scalar' ? 1 : n / inner;
-      this.run('binaryGradB', [a, b, dy, db], [nb, BINARY[op], mode === 'scalar' ? n : inner], this.grid(nb));
+      // b[j] collects the elements it was broadcast to: count of them, j * stride + k * step
+      const [nb, count, stride, step] = mode === 'scalar' ? [1, n, 0, 1] : mode === 'row' ? [n / inner, inner, inner, 1] : [inner, n / inner, 1, inner];
+      this.run('binaryGradB', [a, b, dy, db], [nb, BINARY[op], count, stride, step], this.grid(nb));
     }
   }
   gather(x: Buf, idx: Buf, y: Buf, nOut: number, d: number, acc: boolean) {

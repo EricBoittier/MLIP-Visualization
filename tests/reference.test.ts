@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluate, type PET } from '../src/models/pet/model';
 import { loadModel } from './util';
 
-const refs = readdirSync("tests/reference").filter((f: string) => f.endsWith('.json'));
+const refs = readdirSync('tests/reference').filter((f: string) => f.startsWith('pet-'));
 
 const maxAbs = (a: ArrayLike<number>, b: ArrayLike<number>) =>
   Array.from(a).reduce((m, x, i) => Math.max(m, Math.abs(x - b[i])), 0);

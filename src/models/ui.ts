@@ -10,4 +10,5 @@ export interface ModelUI {
   subtitle: (m: Mod, meta: any) => string; // one line under a box of the 2D diagram
   narration: (m: Mod | 'backward', meta: any) => string; // HTML for the walkthrough panel
   card: (meta: any, nParams: number, label: string) => string; // HTML model card
+  collapse?: (m: Mod) => boolean; // modules that start collapsed
 }

@@ -2,6 +2,7 @@
 import type { Backend } from '../engine/backend';
 import { parseSafetensors } from '../common/safetensors';
 import { checkSupported } from './pet/checkpoint';
+import { ANI } from './ani/model';
 import { PET } from './pet/model';
 import type { Model, ModelKind } from './types';
 
@@ -17,6 +18,8 @@ export async function createModel(be: Backend, kind: ModelKind, meta: any, weigh
     case 'pet':
       checkSupported(meta);
       return new PET(be, meta, parseSafetensors(weights!));
+    case 'ani':
+      return new ANI(be, meta, parseSafetensors(weights!));
     default:
       throw new Error(`model kind "${kind}" is not available yet`);
   }

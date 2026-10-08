@@ -1,5 +1,5 @@
 // Reference backend: plain typed arrays. Every other backend is tested against it.
-import type { Backend, Binary, Buf, CutoffKind, NormKind, SeqLayout, Thumb, Unary } from './backend';
+import type { Backend, Binary, BMode, Buf, CutoffKind, NormKind, SeqLayout, Thumb, Unary } from './backend';
 
 type F = Buf & { a: Float32Array };
 type I = Buf & { a: Int32Array };
@@ -22,6 +22,10 @@ function unaryF(op: Unary, x: number, a: number, b: number): number {
     case 'tanh': return Math.tanh(x);
     case 'logclamp': return Math.log(Math.max(x, a));
     case 'clamp': return Math.min(Math.max(x, a), b);
+    case 'acos': return Math.acos(x);
+    case 'cos': return Math.cos(x);
+    case 'pow': return Math.pow(x, a);
+    case 'celu': return x > 0 ? x : a * Math.expm1(x / a);
   }
 }
 
@@ -36,8 +40,15 @@ function unaryD(op: Unary, x: number, y: number, a: number, b: number): number {
     case 'tanh': return 1 - y * y;
     case 'logclamp': return x >= a ? 1 / x : 0;
     case 'clamp': return x >= a && x <= b ? 1 : 0;
+    case 'acos': return -1 / Math.sqrt(1 - x * x);
+    case 'cos': return -Math.sin(x);
+    case 'pow': return a * Math.pow(x, a - 1);
+    case 'celu': return x > 0 ? 1 : Math.exp(x / a);
   }
 }
+
+const bIndex = (mode: BMode, i: number, inner: number) =>
+  mode === 'full' ? i : mode === 'scalar' ? 0 : mode === 'row' ? (i / inner) | 0 : i % inner;
 
 const binF = (op: Binary, a: number, b: number) =>
   op === 'add' ? a + b : op === 'sub' ? a - b : op === 'mul' ? a * b : a / b;
@@ -137,19 +148,19 @@ export class CpuBackend implements Backend {
     for (let i = 0; i < n; i++) DX[i] += unaryD(op, X[i], Y[i], a, b) * DY[i];
   }
 
-  binary(op: Binary, a: Buf, b: Buf, y: Buf, n: number, mode: 'full' | 'scalar' | 'row', inner: number) {
+  binary(op: Binary, a: Buf, b: Buf, y: Buf, n: number, mode: BMode, inner: number) {
     const A = f(a), B = f(b), Y = f(y);
     for (let i = 0; i < n; i++) {
-      const bv = mode === 'full' ? B[i] : mode === 'scalar' ? B[0] : B[(i / inner) | 0];
+      const bv = B[bIndex(mode, i, inner)];
       Y[i] = binF(op, A[i], bv);
     }
   }
 
   binaryGrad(op: Binary, a: Buf, b: Buf, dy: Buf, da: Buf | null, db: Buf | null, n: number,
-             mode: 'full' | 'scalar' | 'row', inner: number) {
+             mode: BMode, inner: number) {
     const A = f(a), B = f(b), DY = f(dy), DA = da && f(da), DB = db && f(db);
     for (let i = 0; i < n; i++) {
-      const j = mode === 'full' ? i : mode === 'scalar' ? 0 : (i / inner) | 0;
+      const j = bIndex(mode, i, inner);
       const av = A[i], bv = B[j], g = DY[i];
       if (DA) DA[i] += op === 'mul' ? g * bv : op === 'div' ? g / bv : g;
       if (DB) DB[j] += op === 'mul' ? g * av : op === 'div' ? (-g * av) / (bv * bv) : op === 'sub' ? -g : g;

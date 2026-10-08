@@ -8,9 +8,14 @@ export type Buf = { readonly n: number; readonly i32?: boolean };
 export type Unary =
   | 'silu' | 'sigmoid' | 'exp' | 'square' | 'sqrt' | 'neg' | 'tanh'
   | 'logclamp' // log(max(x, a))
-  | 'clamp'; // min(max(x, a), b)
+  | 'clamp' // min(max(x, a), b)
+  | 'acos' | 'cos'
+  | 'pow' // x^a (x > 0)
+  | 'celu'; // max(0, x) + min(0, a (exp(x / a) - 1))
 
 export type Binary = 'add' | 'sub' | 'mul' | 'div';
+/** How b broadcasts onto a [rows, inner]: elementwise, one scalar, one value per row, or one per column. */
+export type BMode = 'full' | 'scalar' | 'row' | 'col';
 export type NormKind = 'layer' | 'rms';
 export type CutoffKind = 'cosine' | 'bump';
 
@@ -55,12 +60,11 @@ export interface Backend {
   unary(op: Unary, x: Buf, y: Buf, n: number, a: number, b: number): void;
   /** dx (+)= f'(x) dy, with y = f(x) the saved forward output. */
   unaryGrad(op: Unary, x: Buf, y: Buf, dy: Buf, dx: Buf, n: number, a: number, b: number): void;
-  /** y = a op b; b of size n or 1 (broadcast scalar), or of size n/inner broadcast along rows
-   *  when `bRows` (b[r] for row r of length inner). */
-  binary(op: Binary, a: Buf, b: Buf, y: Buf, n: number, bMode: 'full' | 'scalar' | 'row', inner: number): void;
+  /** y = a op b, with b broadcast as `bMode` says (rows of length `inner`). */
+  binary(op: Binary, a: Buf, b: Buf, y: Buf, n: number, bMode: BMode, inner: number): void;
   /** Gradients of binary: da (+)= ..., db (+)= ... (reduced when broadcast). Either may be null. */
   binaryGrad(op: Binary, a: Buf, b: Buf, dy: Buf, da: Buf | null, db: Buf | null, n: number,
-             bMode: 'full' | 'scalar' | 'row', inner: number): void;
+             bMode: BMode, inner: number): void;
   /** y[i, :] (+)= x[idx[i], :]; idx < 0 gives zeros. */
   gather(x: Buf, idx: Buf, y: Buf, nOut: number, d: number, acc: boolean): void;
   /** y[t, :] (+)= sum_{k in [off[t], off[t+1])} x[src[k], :] */

@@ -133,7 +133,9 @@ export class Graph {
   sigmoid(x: Tensor) { return this.unary('sigmoid', x); }
 
   binary(op: Binary, a: Tensor, b: Tensor): Tensor {
-    const mode = b.size === a.size ? 'full' : b.size === 1 ? 'scalar' : 'row';
+    // b: same size, a scalar, one per row, or (shape [1, C]) one per column
+    const colwise = b.shape.length === 2 && b.shape[0] === 1 && b.size === a.cols && a.rows > 1;
+    const mode = b.size === a.size ? 'full' : b.size === 1 ? 'scalar' : colwise ? 'col' : 'row';
     if (mode === 'row' && b.size !== a.rows) throw new Error(`${op}: cannot broadcast ${b.shape} onto ${a.shape}`);
     const y = this.tensor(a.shape);
     this.be.binary(op, a.buf, b.buf, y.buf, a.size, mode, a.cols);
@@ -146,10 +148,10 @@ export class Graph {
   mul(a: Tensor, b: Tensor) { return this.binary('mul', a, b); }
   div(a: Tensor, b: Tensor) { return this.binary('div', a, b); }
 
-  scale(x: Tensor, alpha: number): Tensor {
+  scale(x: Tensor, alpha: number, name = 'scale'): Tensor {
     const y = this.tensor(x.shape);
     this.be.scale(x.buf, y.buf, alpha, x.size, false);
-    return this.record('scale', [x], y, () => this.be.scale(y.grad!, this.g(x)!, alpha, x.size, true));
+    return this.record(name, [x], y, () => this.be.scale(y.grad!, this.g(x)!, alpha, x.size, true));
   }
 
   /** Rows of x picked by idx (rows with idx < 0 are zero). */
@@ -206,6 +208,20 @@ export class Graph {
       if (ga) this.be.scale(y.grad!, ga, 1, a.size, true);
       if (gb) this.be.copyCols(y.grad!, y.size, a.size, gb, b.size, 0, 1, b.size, true);
     });
+  }
+
+  /** Same data, new shape (a copy, so it shows up as its own block). */
+  reshape(x: Tensor, shape: number[], kind?: string, name = 'reshape'): Tensor {
+    const y = this.tensor(shape);
+    y.kind = kind;
+    this.be.scale(x.buf, y.buf, 1, x.size, false);
+    return this.record(name, [x], y, () => this.be.scale(y.grad!, this.g(x)!, 1, x.size, true));
+  }
+
+  /** Repeat a column vector [R] (or [R, 1]) across k columns: [R, k]. */
+  repeatCols(x: Tensor, k: number, name = 'repeat'): Tensor {
+    return this.linear(x.shape.length > 1 ? x : this.reshape(x, [x.size, 1], x.kind, 'column'),
+                       this.constant(new Float32Array(k).fill(1), [k, 1], 'ones'), undefined, name);
   }
 
   sumRows(x: Tensor, name = 'sum'): Tensor {

@@ -21,7 +21,7 @@ const det3 = (m: number[][]) =>
   m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
   m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
 
-function inv3(m: number[][]): number[][] {
+export function inv3(m: number[][]): number[][] {
   const d = det3(m);
   const c = (i: number, j: number) => {
     const r = [0, 1, 2].filter((x) => x !== i), s = [0, 1, 2].filter((x) => x !== j);

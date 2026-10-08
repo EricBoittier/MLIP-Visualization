@@ -14,6 +14,7 @@ import { type Hit, NetworkView } from '../viz/network';
 import { Timeline } from '../viz/timeline';
 import type { ForceMode, FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
 import { PRESETS } from './presets';
+import { fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from './catalog';
 import { parseXYZ } from './xyz';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -398,26 +399,6 @@ const loader = {
 };
 
 /** Fetch a file, reporting the fraction downloaded when the server says how big it is. */
-async function fetchBytes(url: string, progress: (fraction: number, mb: string) => void): Promise<ArrayBuffer> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
-  const total = +(r.headers.get('content-length') ?? 0);
-  if (!r.body || !total) return r.arrayBuffer();
-  const reader = r.body.getReader(), chunks: Uint8Array[] = [];
-  let got = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    got += value.length;
-    progress(got / total, `${(got / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`);
-  }
-  const out = new Uint8Array(got);
-  let o = 0;
-  for (const c of chunks) { out.set(c, o); o += c.length; }
-  return out.buffer;
-}
-
 // ------------------------------------------------------------------ inputs
 const structSel = $<HTMLSelectElement>('structure');
 structSel.innerHTML = Object.entries(PRESETS).map(([k, s]) => `<option value="${k}">${s.label}</option>`).join('');
@@ -438,15 +419,16 @@ $<HTMLInputElement>('xyz-file').onchange = async (e) => {
   try { selected = 0; setSystem(parseXYZ(await f.text())); structSel.value = ''; }
   catch (err) { status(`<b>Could not read ${f.name}:</b> ${(err as Error).message}`); }
 };
+// the MD page opens with this model and structure
+$('md-link').onclick = () => {
+  const q = new URLSearchParams({ ...(active && active.kind !== 'krr' ? { model: active.name } : {}), ...(PRESETS[structSel.value] ? { structure: structSel.value } : {}) });
+  $<HTMLAnchorElement>('md-link').href = `md.html?${q}`;
+};
 $('rattle').onclick = () => {
   setSystem({ ...system, positions: system.positions.map((p) => p.map((x) => x + 0.06 * (Math.random() * 2 - 1))) }, false);
 };
 
-// models/index.json: [{ name, kind, label, meta, weights, params }]. KRR has no files: it is fitted
-// here, on the current structure, against a teacher model.
-interface ModelEntry { name: string; kind: ModelKind; label?: string; meta?: string; weights?: string; params?: any }
 const kindSel = $<HTMLSelectElement>('kind'), modelSel = $<HTMLSelectElement>('model');
-const KIND_ORDER: ModelKind[] = ['pet', 'mace', 'lorem', 'ani', 'physnet', 'krr'];
 let fillVariants = () => {};
 let entries: ModelEntry[] = [];
 const loaded = new Set<string>(); // model ids the worker holds
@@ -483,22 +465,10 @@ function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate 
     }
   })();
 }
-// Model files come from public/models/ when it has them (local development), otherwise from the
-// Hugging Face repository that scripts/publish_weights.py fills; ?models=<base url> picks another.
-const HF_MODELS = 'https://huggingface.co/EricBoi/mlip-visualization-models/resolve/main/';
 let base = 'models/';
-const getJSON = async (u: string) => { const r = await fetch(u); if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.json(); };
 async function listModels() {
-  const params = new URLSearchParams(location.search), custom = params.get('models');
-  for (const b of custom ? [custom.replace(/\/?$/, '/')] : ['models/', HF_MODELS]) {
-    try {
-      const list: ModelEntry[] = await getJSON(`${b}index.json`);
-      const probe = list.find((x) => x.meta);
-      if (probe) await getJSON(b + probe.meta); // index.json is in git; the weights may not be
-      [entries, base] = [list, b];
-      break;
-    } catch { entries = []; }
-  }
+  const params = new URLSearchParams(location.search);
+  ({ entries, base } = await findModels());
   if (!entries.length) status('<b>No models found</b> locally or on Hugging Face. Convert some (see <code>public/models/README.md</code>) or open a pair of model files.');
   const q = params.get('model');
   if (q) {
@@ -525,7 +495,7 @@ async function listModels() {
   if (q) { kindSel.value = 'pet'; fillVariants(); modelSel.value = q; } else fillVariants();
   if (entries.length) loadModel(current());
 }
-const stem = (name: string) => (/^https?:/.test(name) ? name : base + name);
+const stem = (name: string) => resolve(base, name);
 $<HTMLInputElement>('model-files').onchange = async (e) => {
   const files = [...((e.target as HTMLInputElement).files ?? [])];
   const j = files.find((f) => f.name.endsWith('.json')), w = files.find((f) => f.name.endsWith('.safetensors'));

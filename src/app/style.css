@@ -24,6 +24,8 @@ button, select, .file { font: inherit; color: var(--text); background: #1a1e28; 
 button:hover, .file:hover { border-color: #3a4256; }
 button.on { border-color: var(--accent); color: var(--accent); }
 .file input { display: none; }
+a.nav { color: var(--text); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; background: #1a1e28; white-space: nowrap; }
+a.nav:hover { border-color: var(--accent); color: var(--accent); }
 
 header { display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line);
   background: var(--panel); flex-wrap: wrap; }

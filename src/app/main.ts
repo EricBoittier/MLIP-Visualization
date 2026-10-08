@@ -346,7 +346,9 @@ $('rattle').onclick = () => {
 // models/index.json: [{ name, kind, label, meta, weights, params }]. KRR has no files: it is fitted
 // here, on the current structure, against a teacher model.
 interface ModelEntry { name: string; kind: ModelKind; label?: string; meta?: string; weights?: string; params?: any }
-const modelSel = $<HTMLSelectElement>('model'), teacherSel = $<HTMLSelectElement>('teacher');
+const kindSel = $<HTMLSelectElement>('kind'), modelSel = $<HTMLSelectElement>('model');
+const KIND_ORDER: ModelKind[] = ['pet', 'ani', 'physnet', 'krr'];
+let fillVariants = () => {};
 let entries: ModelEntry[] = [];
 const loaded = new Set<string>(); // model ids the worker holds
 const waiting = new Map<string, () => void>(); // model id -> resolve, for loads we await
@@ -355,7 +357,8 @@ let active: ModelEntry | null = null;
 function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate = true): Promise<void> {
   return (async () => {
     if (e.kind === 'krr') {
-      const t = entries.find((x) => x.name === teacherSel.value) ?? entries.find((x) => x.kind !== 'krr')!;
+      // KRR's 'weights' are a fit: the second menu says what to fit it to
+      const t = entries.find((x) => x.name === modelSel.value && x.kind !== 'krr') ?? entries.find((x) => x.kind !== 'krr')!;
       if (!loaded.has(t.name)) await loadModel(t, undefined, undefined, false);
       status(`fitting ${e.label ?? e.name} to ${t.label ?? t.name} on this structure…`);
       meta0 = { kind: 'krr', ...e.params, teacher: t.name, teacherLabel: t.label ?? t.name, system };
@@ -376,16 +379,25 @@ async function listModels() {
     // ?model=<url stem>: a PET model at <stem>.json and <stem>.safetensors (e.g. a HuggingFace repo)
     entries.push({ name: q, kind: 'pet', label: q.split('/').pop(), meta: `${q}.json`, weights: `${q}.safetensors` });
   }
-  modelSel.innerHTML = entries.map((m) => `<option value="${m.name}">${m.label ?? m.name} · ${UIS[m.kind]?.family ?? m.kind}</option>`).join('');
-  teacherSel.innerHTML = entries.filter((m) => m.kind !== 'krr').map((m) => `<option value="${m.name}">${m.label ?? m.name}</option>`).join('');
-  if (q) modelSel.value = q;
-  modelSel.onchange = () => {
-    const e = entries.find((m) => m.name === modelSel.value)!;
-    $('teacher-wrap').hidden = e.kind !== 'krr';
-    loadModel(e);
+  // first menu: the kind of model; second: its weights (for KRR: what it is fitted to)
+  const kinds = KIND_ORDER.filter((k) => entries.some((m) => m.kind === k));
+  kindSel.innerHTML = kinds.map((k) => `<option value="${k}">${UIS[k]?.typeName ?? UIS[k]?.name ?? k} · ${UIS[k]?.family ?? ''}</option>`).join('');
+  fillVariants = () => {
+    const k = kindSel.value as ModelKind;
+    const opts = k === 'krr'
+      ? entries.filter((m) => m.kind !== 'krr').map((m) => [m.name, `fitted to ${m.label ?? m.name}`])
+      : entries.filter((m) => m.kind === k).map((m) => [m.name, m.label ?? m.name]);
+    modelSel.innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    $('variant-label').textContent = k === 'krr' ? 'Fitted to' : 'Weights';
   };
-  teacherSel.onchange = () => active?.kind === 'krr' && loadModel(active);
-  modelSel.onchange(new Event('change'));
+  const current = () => {
+    const k = kindSel.value as ModelKind;
+    return k === 'krr' ? entries.find((m) => m.kind === 'krr')! : entries.find((m) => m.name === modelSel.value)!;
+  };
+  kindSel.onchange = () => { fillVariants(); loadModel(current()); };
+  modelSel.onchange = () => loadModel(current());
+  if (q) { kindSel.value = 'pet'; fillVariants(); modelSel.value = q; } else fillVariants();
+  loadModel(current());
 }
 const stem = (name: string) => (/^https?:/.test(name) ? name : `models/${name}`);
 $<HTMLInputElement>('model-files').onchange = async (e) => {
@@ -396,6 +408,9 @@ $<HTMLInputElement>('model-files').onchange = async (e) => {
   const kind: ModelKind = meta1.architecture === 'pet' ? 'pet' : meta1.kind ?? 'pet';
   const entry: ModelEntry = { name: j.name.replace(/\.json$/, ''), kind, label: j.name.replace(/\.json$/, '') };
   if (!entries.some((x) => x.name === entry.name)) entries.push(entry);
+  kindSel.value = kind;
+  fillVariants();
+  modelSel.value = entry.name;
   await loadModel(entry, meta1, await w.arrayBuffer());
 };
 

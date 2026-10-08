@@ -18,6 +18,7 @@ export interface ModelUI {
   terms?: Terms;
   kind: ModelKind;
   name: string; // short name, e.g. 'PET'
+  typeName?: string; // the kind of model, for the model menu (default: name), e.g. 'BPNN' for ANI-2x
   family: string; // e.g. 'Behler–Parrinello network'
   describe: (seg: string, path: string) => ModDesc | null;
   subtitle: (m: Mod, meta: any) => string; // one line under a box of the 2D diagram

@@ -335,7 +335,7 @@ export class NetworkView {
       if (a) for (let h = 0; h < a.heads; h++) block('head', i, h, this.headThumb(trace, i, h), null);
       const shape = trace.shapes[i];
       this.opText[i] = `${opLabel(op)}  [${shape.join('×')}]`;
-      this.opLabels.push(label(this.weightsOnly ? this.paramLabel(i) : this.opText[i], 1.1, '#aab2c2', false, 90));
+      this.opLabels.push(label(this.opText[i], 1.1, '#aab2c2', false, 90));
     });
     for (const m of walk(this.root)) {
       if (m.depth === 0) continue;
@@ -386,12 +386,13 @@ export class NetworkView {
       const c = lay.cards[b.op];
       b.mesh.visible = c.visible && (!this.weightsOnly || b.kind === 'weight');
       const r = b.kind === 'op' ? c.block : b.kind === 'weight' ? c.weights.find((w) => w.name === this.ops[b.op].params[b.sub])?.rect : c.heads[b.sub]?.rect;
+      if (b.kind === 'weight' && !r) b.mesh.visible = false; // shown at another op
       if (r) place(b.mesh, { x: c.rect.x + r.x, y: c.rect.y + r.y, w: r.w, h: r.h }, b.kind === 'weight' ? 0.3 : 0.6, b.kind === 'weight' ? 0.6 : 1.2);
     }
     this.opLabels.forEach((t, i) => {
       const c = lay.cards[i];
       t.visible = c.visible && !this.zen;
-      const want = this.weightsOnly ? this.paramLabel(i) : this.opText[i];
+      const want = this.weightsOnly ? this.paramLabel(c.weights.map((w) => w.name)) : this.opText[i];
       if (t.text !== want) { t.text = want; t.sync(); }
       this.moveTo(t, c.rect.x, -c.rect.y - 0.4, 0.8, 1, 1, 1, now);
     });
@@ -548,8 +549,8 @@ export class NetworkView {
 
   private opText: string[] = [];
   /** An op's parameters, for the weights-only view: their names and full shapes. */
-  private paramLabel(i: number) {
-    return this.ops[i].params.map((n) => `${n.replace(/^gnn_layers\.\d+\.(trans\.layers\.\d+\.)?/, '')} [${this.paramShapes.get(n)?.join('×') ?? ''}]`).join('   ');
+  private paramLabel(names: string[]) {
+    return names.map((n) => `${n.replace(/^gnn_layers\.\d+\.(trans\.layers\.\d+\.)?/, '')} [${this.paramShapes.get(n)?.join('×') ?? ''}]`).join('   ');
   }
   /** Full shapes of the parameters (the thumbnails are averaged down). */
   paramShapes = new Map<string, number[]>();

@@ -41,12 +41,14 @@ export function layout(root: Mod, ops: OpInfo[], trace: Trace, collapsed: Set<st
   const attn = new Map(trace.attention.map((a) => [a.op, a]));
 
   // ---- sizes, bottom-up
+  const shown = new Set<string>(); // with only the weights, each parameter once, where it is first read
   const card = (i: number): Card => {
     if (weightsOnly) {
       let x = 0;
       const weights = ops[i].params.flatMap((name) => {
         const p = trace.params?.[name]?.value;
-        if (!p) return [];
+        if (!p || shown.has(name)) return [];
+        shown.add(name);
         const r = { x, y: LBL, w: p.cols, h: p.rows };
         x += p.cols + 3 * SEP;
         return [{ name, rect: r }];

@@ -24,6 +24,7 @@ const num = (x: number) => +x.toPrecision(4);
 export const aniUI: ModelUI = {
   kind: 'ani',
   name: 'ANI-2x',
+  typeName: 'BPNN',
   family: 'Behler–Parrinello network',
   describe,
   collapse: (m: Mod) => m.type === 'mlp' && /member[1-9]/.test(m.path),

@@ -57,10 +57,12 @@ describe('WebGPU kernels', () => {
     const y = g.add(g.add(g.silu(x), g.sigmoid(x)), g.add(g.unary('tanh', x), g.unary('clamp', x, -0.3, 0.4)));
     return { out: g.add(y, g.unary('logclamp', g.unary('square', x), 1e-3)), inputs: [x] };
   }));
-  it('acos / cos / pow / celu', () => compare((g) => {
+  it('acos / cos / pow / celu / erf / switch', () => compare((g) => {
     const x = T(g, [9, 7], 21);
     const y = g.add(g.unary('acos', g.scale(x, 0.9)), g.unary('cos', g.scale(x, 3)));
     const z = g.add(g.unary('pow', g.add(g.unary('square', x), g.constant(new Float32Array([0.1]), [1])), 3.7), g.unary('celu', g.scale(x, 2), 0.1));
+    const w = g.add(g.unary('erf', g.scale(x, 1.5)), g.unary('switch', x, -0.6, 0.7));
+    return { out: g.add(g.add(y, z), w), inputs: [x] };
     return { out: g.add(y, z), inputs: [x] };
   }));
   it('spline / spherical harmonics / power spectrum / transpose', () => compare((g) => {

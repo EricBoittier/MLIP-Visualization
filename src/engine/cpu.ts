@@ -26,6 +26,8 @@ function unaryF(op: Unary, x: number, a: number, b: number): number {
     case 'cos': return Math.cos(x);
     case 'pow': return Math.pow(x, a);
     case 'celu': return x > 0 ? x : a * Math.expm1(x / a);
+    case 'erf': return erf(x);
+    case 'switch': return smoothSwitch(x, a, b)[0];
   }
 }
 
@@ -44,11 +46,30 @@ function unaryD(op: Unary, x: number, y: number, a: number, b: number): number {
     case 'cos': return -Math.sin(x);
     case 'pow': return a * Math.pow(x, a - 1);
     case 'celu': return x > 0 ? 1 : Math.exp(x / a);
+    case 'erf': return (2 / Math.sqrt(Math.PI)) * Math.exp(-x * x);
+    case 'switch': return smoothSwitch(x, a, b)[1];
   }
 }
 
 const bIndex = (mode: BMode, i: number, inner: number) =>
   mode === 'full' ? i : mode === 'scalar' ? 0 : mode === 'row' ? (i / inner) | 0 : i % inner;
+
+/** erf to ~1e-7 (Abramowitz & Stegun 7.1.26). */
+export function erf(x: number): number {
+  const s = Math.sign(x), t = 1 / (1 + 0.3275911 * Math.abs(x));
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y;
+}
+
+/** e3x.nn.smooth_switch: 1 / (1 + exp(sqrt(3)/2 (1/s - 1/(1-s)))), s = (x - x0) / (x1 - x0), and its derivative. */
+export function smoothSwitch(x: number, x0: number, x1: number): [number, number] {
+  const w = x1 - x0, s = (x - x0) / w, eps = 5.960464477539063e-8;
+  if (s < eps) return [0, 0];
+  if (s > 1 - eps) return [1, 0];
+  const c = Math.sqrt(3) / 2, g = Math.exp(c * (1 / s - 1 / (1 - s)));
+  const f = 1 / (1 + g);
+  return [f, (g * c * (1 / (s * s) + 1 / ((1 - s) * (1 - s)))) * f * f / w];
+}
 
 const binF = (op: Binary, a: number, b: number) =>
   op === 'add' ? a + b : op === 'sub' ? a - b : op === 'mul' ? a * b : a / b;

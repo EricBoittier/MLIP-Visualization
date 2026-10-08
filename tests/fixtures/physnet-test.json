@@ -1,0 +1,23 @@
+{
+ "kind": "physnet",
+ "name": "physnet-test",
+ "source": "tests/reference/physnet-test.params.json",
+ "config": {
+  "features": 16,
+  "max_degree": 0,
+  "num_iterations": 3,
+  "num_basis_functions": 12,
+  "cutoff": 4.0,
+  "max_atomic_number": 17,
+  "charges": true,
+  "n_refinement_blocks": 2,
+  "zbl": true,
+  "use_energy_bias": true,
+  "include_electrostatics": true
+ },
+ "elements": [
+  1,
+  6,
+  8
+ ]
+}

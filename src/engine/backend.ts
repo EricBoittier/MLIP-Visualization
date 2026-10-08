@@ -11,7 +11,9 @@ export type Unary =
   | 'clamp' // min(max(x, a), b)
   | 'acos' | 'cos'
   | 'pow' // x^a (x > 0)
-  | 'celu'; // max(0, x) + min(0, a (exp(x / a) - 1))
+  | 'celu' // max(0, x) + min(0, a (exp(x / a) - 1))
+  | 'erf'
+  | 'switch'; // e3x's smooth_switch from 0 at x <= a to 1 at x >= b
 
 export type Binary = 'add' | 'sub' | 'mul' | 'div';
 /** How b broadcasts onto a [rows, inner]: elementwise, one scalar, one value per row, or one per column. */

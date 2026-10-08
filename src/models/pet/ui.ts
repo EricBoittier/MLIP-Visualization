@@ -141,7 +141,7 @@ export const petUI: ModelUI = {
     energy is a sum over atoms. Forces are the gradient of that energy with respect to the positions (or, with the
     <i>direct</i> option of PET-MAD, predicted outright by extra heads).</p>
     <p>Each operation's output is a block of numbers: rows are the selected atom's tokens, columns the features.
-    On the right, the structure is drawn as the graph PET actually uses. <b>Click an atom</b> to follow it.</p>`,
+    The structure panel draws the graph PET actually uses. <b>Click an atom</b> to follow it.</p>`,
   card: (meta: ModelMeta, nParams, label) => {
     const h = meta.hypers;
     return `<b>${label}</b> · ${(nParams / 1e6).toFixed(2)} M parameters<br>

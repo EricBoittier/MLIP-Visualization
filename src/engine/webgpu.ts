@@ -6,7 +6,7 @@ import type { Backend, Binary, BMode, Buf, CutoffKind, NormKind, SeqLayout, Thum
 type GBuf = Buf & { g: GPUBuffer; cap: number };
 const gb = (b: Buf) => (b as GBuf).g;
 
-const UNARY: Record<Unary, number> = { silu: 0, sigmoid: 1, exp: 2, square: 3, sqrt: 4, neg: 5, tanh: 6, logclamp: 7, clamp: 8, acos: 9, cos: 10, pow: 11, celu: 12 };
+const UNARY: Record<Unary, number> = { silu: 0, sigmoid: 1, exp: 2, square: 3, sqrt: 4, neg: 5, tanh: 6, logclamp: 7, clamp: 8, acos: 9, cos: 10, pow: 11, celu: 12, erf: 13, switch: 14 };
 const BINARY: Record<Binary, number> = { add: 0, sub: 1, mul: 2, div: 3 };
 const BMODE = { full: 0, scalar: 1, row: 2, col: 3 } as const;
 const WG = 256;
@@ -91,6 +91,19 @@ struct P { n: u32, op: u32, a: f32, b: f32 }
 @group(0) @binding(2) var<uniform> p: P;
 ${idx1}
 fn sig(v: f32) -> f32 { return 1.0 / (1.0 + exp(-v)); }
+fn erf_(x: f32) -> f32 {
+  let t = 1.0 / (1.0 + 0.3275911 * abs(x));
+  let y = 1.0 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
+  return sign(x) * y;
+}
+fn sw(x: f32, x0: f32, x1: f32) -> vec2f {
+  let w = x1 - x0; let s = (x - x0) / w; let eps = 5.960464477539063e-8;
+  if (s < eps) { return vec2f(0.0, 0.0); }
+  if (s > 1.0 - eps) { return vec2f(1.0, 0.0); }
+  let c = 0.8660254037844386; let g = exp(c * (1.0 / s - 1.0 / (1.0 - s)));
+  let f = 1.0 / (1.0 + g);
+  return vec2f(f, g * c * (1.0 / (s * s) + 1.0 / ((1.0 - s) * (1.0 - s))) * f * f / w);
+}
 @compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
   let i = gidx(g, nw); if (i >= p.n) { return; }
   let v = x[i]; var r = 0.0;
@@ -107,7 +120,9 @@ fn sig(v: f32) -> f32 { return 1.0 / (1.0 + exp(-v)); }
     case 9u: { r = acos(v); }
     case 10u: { r = cos(v); }
     case 11u: { r = pow(v, p.a); }
-    default: { r = select(p.a * (exp(v / p.a) - 1.0), v, v > 0.0); }
+    case 12u: { r = select(p.a * (exp(v / p.a) - 1.0), v, v > 0.0); }
+    case 13u: { r = erf_(v); }
+    default: { r = sw(v, p.a, p.b).x; }
   }
   y[i] = r;
 }`,
@@ -120,6 +135,19 @@ struct P { n: u32, op: u32, a: f32, b: f32 }
 @group(0) @binding(4) var<uniform> p: P;
 ${idx1}
 fn sig(v: f32) -> f32 { return 1.0 / (1.0 + exp(-v)); }
+fn erf_(x: f32) -> f32 {
+  let t = 1.0 / (1.0 + 0.3275911 * abs(x));
+  let y = 1.0 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
+  return sign(x) * y;
+}
+fn sw(x: f32, x0: f32, x1: f32) -> vec2f {
+  let w = x1 - x0; let s = (x - x0) / w; let eps = 5.960464477539063e-8;
+  if (s < eps) { return vec2f(0.0, 0.0); }
+  if (s > 1.0 - eps) { return vec2f(1.0, 0.0); }
+  let c = 0.8660254037844386; let g = exp(c * (1.0 / s - 1.0 / (1.0 - s)));
+  let f = 1.0 / (1.0 + g);
+  return vec2f(f, g * c * (1.0 / (s * s) + 1.0 / ((1.0 - s) * (1.0 - s))) * f * f / w);
+}
 @compute @workgroup_size(${WG}) fn main(@builtin(global_invocation_id) g: vec3u, @builtin(num_workgroups) nw: vec3u) {
   let i = gidx(g, nw); if (i >= p.n) { return; }
   let v = x[i]; let o = y[i]; var d = 0.0;
@@ -136,7 +164,9 @@ fn sig(v: f32) -> f32 { return 1.0 / (1.0 + exp(-v)); }
     case 9u: { d = -1.0 / sqrt(1.0 - v * v); }
     case 10u: { d = -sin(v); }
     case 11u: { d = p.a * pow(v, p.a - 1.0); }
-    default: { d = select(exp(v / p.a), 1.0, v > 0.0); }
+    case 12u: { d = select(exp(v / p.a), 1.0, v > 0.0); }
+    case 13u: { d = 1.1283791670955126 * exp(-v * v); }
+    default: { d = sw(v, p.a, p.b).y; }
   }
   dx[i] += d * dy[i];
 }`,

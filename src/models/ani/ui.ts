@@ -92,7 +92,7 @@ export const aniUI: ModelUI = {
     <p>ANI-2x is a <i>Behler–Parrinello</i> network: each atom's neighbourhood is summarised by a fixed vector of
     symmetry functions (radial Gaussians and angular terms, sorted by neighbour element), and a small network per element
     turns that vector into the atom's energy. The total energy is the sum. ${meta.members} independently trained copies are averaged.</p>
-    <p>Each block is an operation's output for the selected atom; on the right, the pairs within ${meta.radial.cutoff} Å that
+    <p>Each block is an operation's output for the selected atom; in the structure panel, the pairs within ${meta.radial.cutoff} Å that
     enter its radial symmetry functions. <b>Click an atom</b> to follow it.</p>`,
   card: (meta: AniMeta, nParams, label) => `<b>${label}</b> · ${(nParams / 1e6).toFixed(2)} M parameters (${meta.members}-member ensemble)<br>
     elements ${meta.symbols.join(' ')} · ωB97X/6-31G(d)<br>radial cutoff ${meta.radial.cutoff} Å · angular cutoff ${meta.angular.cutoff} Å<br>

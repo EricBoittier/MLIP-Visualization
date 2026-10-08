@@ -58,6 +58,20 @@ models there, with a model card giving each one's source and licence:
 HF_TOKEN=hf_... uv run scripts/publish_weights.py   # --dry-run lists the files first
 ```
 
+## Deployment
+
+The app is a static site: `npm run build` writes it to `dist/`, and everything runs in the
+visitor's browser. `.github/workflows/deploy.yml` builds it on every push to `main` and publishes it:
+
+- **GitHub Pages**: https://ericboittier.github.io/MLIP-Visualization/ (Settings → Pages → Source: GitHub Actions).
+- **Hugging Face Space** (static): https://huggingface.co/spaces/EricBoi/mlip-visualization, once the repository has an
+  `HF_TOKEN` secret with write access (`gh secret set HF_TOKEN`). Without it the job skips itself.
+  `uv run scripts/deploy_space.py` does the same from your machine after `npm run build`.
+
+Neither deployment carries the weights. The deployed app downloads them from the public model repository
+https://huggingface.co/EricBoi/mlip-visualization-models, which `scripts/publish_weights.py` creates and fills from
+`public/models/` (log in first with `hf auth login`, then `uv run scripts/publish_weights.py --dry-run` to check).
+
 ## Tests
 
 ```bash

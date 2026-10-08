@@ -19,12 +19,12 @@ export interface MolState {
 type ColorBy = 'pass' | 'element' | 'energy' | 'force' | 'charge' | 'attention';
 
 // Jmol colours and covalent radii (A) for the first rows; others fall back to grey / 1.5 A
-const JMOL: Record<number, number> = {
+export const JMOL: Record<number, number> = {
   1: 0xffffff, 3: 0xcc80ff, 5: 0xffb5b5, 6: 0x909090, 7: 0x3050f8, 8: 0xff0d0d, 9: 0x90e050, 11: 0xab5cf2, 12: 0x8aff00,
   13: 0xbfa6a6, 14: 0xf0c8a0, 15: 0xff8000, 16: 0xffff30, 17: 0x1ff01f, 19: 0x8f40d4, 20: 0x3dff00, 26: 0xe06633,
   29: 0xc88033, 30: 0x7d80b0, 35: 0xa62929, 53: 0x940094,
 };
-const RCOV: Record<number, number> = { 1: 0.31, 5: 0.84, 6: 0.76, 7: 0.71, 8: 0.66, 9: 0.57, 11: 1.66, 14: 1.11, 15: 1.07, 16: 1.05, 17: 1.02, 35: 1.2, 53: 1.39 };
+export const RCOV: Record<number, number> = { 1: 0.31, 5: 0.84, 6: 0.76, 7: 0.71, 8: 0.66, 9: 0.57, 11: 1.66, 14: 1.11, 15: 1.07, 16: 1.05, 17: 1.02, 35: 1.2, 53: 1.39 };
 
 /** Sequential (dark to bright) and diverging (blue / grey / red) colour maps. */
 const SEQ = [[0.12, 0.13, 0.18], [0.42, 0.22, 0.55], [0.85, 0.35, 0.33], [0.99, 0.74, 0.28], [1, 0.98, 0.75]];

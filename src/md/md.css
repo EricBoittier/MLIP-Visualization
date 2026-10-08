@@ -1,0 +1,55 @@
+/* the MD page: the moving structure on the left, live readouts on the right */
+.brand { color: var(--text); text-decoration: none; }
+.page-tag { color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 9px; font-size: 12px; margin-right: 6px; }
+header input[type=number] { width: 68px; font: inherit; color: var(--text); background: #1a1e28; border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 6px; font-variant-numeric: tabular-nums; }
+
+body.md main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); min-height: 0; }
+#stage { position: relative; min-height: 0; background: radial-gradient(ellipse at 50% 40%, #161a23, var(--bg) 70%); }
+#traj { position: absolute; inset: 0; }
+#traj canvas { display: block; }
+#clock { position: absolute; left: 14px; bottom: 12px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; pointer-events: none; }
+#md-loading { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; background: rgba(12, 14, 19, 0.78); backdrop-filter: blur(3px); text-align: center; padding: 16px; }
+#md-loading[hidden] { display: none; }
+
+#panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+#tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
+.tile small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.tile b { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile span { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+#panel figure { margin: 0; }
+#panel figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.note { color: var(--muted); font-size: 12.5px; margin: 0; }
+.note b { color: var(--text); font-weight: 600; }
+
+.chart { display: flex; flex-direction: column; gap: 4px; }
+.chart-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text); }
+.chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.chart-plot { position: relative; height: 180px; }
+.chart-plot canvas { display: block; cursor: crosshair; }
+.chart-tip { position: absolute; pointer-events: none; background: #1a1e28; border: 1px solid #3a4256; border-radius: 6px; padding: 6px 8px;
+  font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; z-index: 2; }
+.chart-tip .tt-head { color: var(--muted); margin-bottom: 2px; }
+.chart-tip div { display: flex; align-items: center; gap: 6px; }
+.chart-tip i { width: 8px; height: 8px; border-radius: 2px; }
+.chart-tip b { margin-left: auto; padding-left: 12px; font-weight: 600; }
+
+@media (max-width: 900px) {
+  body.md main { display: flex; flex-direction: column; }
+  #stage { height: 52vh; min-height: 260px; flex: none; }
+  #panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  header input[type=number] { width: 58px; }
+}
+@media (max-width: 520px) {
+  /* the visualiser hides header label text at this width; here T0 and dt need theirs */
+  body.md header label:not(.file) { font-size: 12px; gap: 4px; }
+  body.md header label:has(select) { font-size: 0; gap: 0; }
+  header input[type=number] { font-size: 12px; width: 54px; }
+  .page-tag { display: none; }
+  #panel { padding: 12px 10px; }
+  #tiles { gap: 6px; }
+  .tile { padding: 6px 8px; }
+  .tile b { font-size: 16px; }
+}

@@ -26,6 +26,14 @@ Everything runs locally: a small tape-based autograd engine in TypeScript with
 a CPU backend and a WebGPU backend (WGSL kernels for every op, forward and
 backward), in a Web Worker.
 
+## Dynamics
+
+`md.html` (the *NVE dynamics* link in the header) runs constant-energy molecular dynamics with any of
+these models, except KRR. It uses velocity Verlet with Maxwell–Boltzmann starting velocities and no net
+momentum. It plots kinetic, potential and total energy and the temperature as the run goes, and shows the
+moving structure. It can also use a model's direct force head, which is not the gradient of an energy,
+so you can watch the total energy drift. `?model=<name>&structure=<preset>` picks the starting point.
+
 ## Running
 
 ```bash

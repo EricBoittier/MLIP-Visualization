@@ -1,0 +1,64 @@
+# Build the app and publish it on GitHub Pages and, when the HF_TOKEN secret is set,
+# on a static Hugging Face Space. Model weights are not part of the build: the deployed
+# app downloads them from the Hugging Face model repository (scripts/publish_weights.py).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  space:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'huggingface_hub>=0.25'
+      - run: python scripts/deploy_space.py --dir dist
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}

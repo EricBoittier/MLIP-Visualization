@@ -14,7 +14,7 @@ import { type Hit, NetworkView } from '../viz/network';
 import { Timeline } from '../viz/timeline';
 import type { ForceMode, FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
 import { PRESETS } from './presets';
-import { fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from './catalog';
+import { canSample, fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from './catalog';
 import { parseXYZ } from './xyz';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -440,8 +440,9 @@ function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate 
     const name = e.label ?? e.name;
     try {
       if (e.kind === 'krr') {
-        // KRR's 'weights' are a fit: the second menu says what to fit it to
-        const t = entries.find((x) => x.name === modelSel.value && x.kind !== 'krr') ?? entries.find((x) => x.kind !== 'krr')!;
+        // KRR's 'weights' are a fit: the second menu says what to fit it to. The teacher labels sampled
+        // structures, so only production weights qualify (catalog.ts)
+        const t = entries.find((x) => x.name === modelSel.value && canSample(x)) ?? entries.find(canSample)!;
         if (activate) loader.show(`Fitting ${name} to ${t.label ?? t.name}`);
         if (!loaded.has(t.name)) await loadModel(t, undefined, undefined, false);
         status(`fitting ${name} to ${t.label ?? t.name} on this structure…`);
@@ -476,12 +477,12 @@ async function listModels() {
     entries.push({ name: q, kind: 'pet', label: q.split('/').pop(), meta: `${q}.json`, weights: `${q}.safetensors` });
   }
   // first menu: the kind of model; second: its weights (for KRR: what it is fitted to)
-  const kinds = KIND_ORDER.filter((k) => entries.some((m) => m.kind === k));
+  const kinds = KIND_ORDER.filter((k) => entries.some((m) => m.kind === k) && (k !== 'krr' || entries.some(canSample)));
   kindSel.innerHTML = kinds.map((k) => `<option value="${k}">${UIS[k]?.typeName ?? UIS[k]?.name ?? k} · ${UIS[k]?.family ?? ''}</option>`).join('');
   fillVariants = () => {
     const k = kindSel.value as ModelKind;
     const opts = k === 'krr'
-      ? entries.filter((m) => m.kind !== 'krr').map((m) => [m.name, `fitted to ${m.label ?? m.name}`])
+      ? entries.filter(canSample).map((m) => [m.name, `fitted to ${m.label ?? m.name}`])
       : entries.filter((m) => m.kind === k).map((m) => [m.name, m.label ?? m.name]);
     modelSel.innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
     $('variant-label').textContent = k === 'krr' ? 'Fitted to' : 'Weights';

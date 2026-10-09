@@ -61,6 +61,27 @@ export function neighborList(sys: System, cutoff: number): NeighborList {
   }
   const C: number[] = [], J: number[] = [], S: number[] = [], SV: number[] = [], Dd: number[] = [];
   const c2 = cutoff * cutoff;
+  if (!per) {
+    // isolated: bin atoms into cubes of side `cutoff`, search the 27 around each; same pairs, same order
+    const lo = [0, 1, 2].map((k) => Math.min(...pos.map((p) => p[k])));
+    const key = (p: number[]) => [0, 1, 2].map((k) => Math.floor((p[k] - lo[k]) / cutoff) + 1);
+    const id = (x: number, y: number, z: number) => (x * 4096 + y) * 4096 + z;
+    const bins = new Map<number, number[]>();
+    pos.forEach((p, j) => { const k = id(...(key(p) as [number, number, number])); (bins.get(k) ?? bins.set(k, []).get(k)!).push(j); });
+    for (let i = 0; i < N; i++) {
+      const [bx, by, bz] = key(pos[i]), js: number[] = [];
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (const j of bins.get(id(bx + a, by + b, bz + c)) ?? []) js.push(j);
+      js.sort((x, y) => x - y);
+      for (const j of js) {
+        if (i === j) continue;
+        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], dz = pos[j][2] - pos[i][2], r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 >= c2) continue;
+        C.push(i); J.push(j); S.push(0, 0, 0); SV.push(0, 0, 0); Dd.push(Math.sqrt(r2));
+      }
+    }
+    return { center: Int32Array.from(C), neighbor: Int32Array.from(J), shift: Int32Array.from(S),
+             shiftVec: Float64Array.from(SV), dist: Float64Array.from(Dd) };
+  }
   for (let i = 0; i < N; i++) {
     for (let a = -reps[0]; a <= reps[0]; a++)
       for (let b = -reps[1]; b <= reps[1]; b++)

@@ -1,6 +1,10 @@
 /* the MD page: the moving structure on the left, live readouts on the right */
 .brand { color: var(--text); text-decoration: none; }
-.page-tag { color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 9px; font-size: 12px; margin-right: 6px; }
+#modes { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-right: 6px; }
+#modes button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 4px 10px; }
+#modes button + button { border-left: 1px solid var(--line); }
+#modes button.on { background: #262b36; color: var(--accent); }
+body.mode-md .dmc-only, body.mode-dmc .md-only { display: none !important; }
 header input[type=number] { width: 68px; font: inherit; color: var(--text); background: #1a1e28; border: 1px solid var(--line);
   border-radius: 6px; padding: 3px 6px; font-variant-numeric: tabular-nums; }
 
@@ -14,7 +18,7 @@ body.md main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px
 #md-loading[hidden] { display: none; }
 
 #panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
-#tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
 .tile small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
 .tile b { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -47,9 +51,9 @@ body.md main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px
   body.md header label:not(.file) { font-size: 12px; gap: 4px; }
   body.md header label:has(select) { font-size: 0; gap: 0; }
   header input[type=number] { font-size: 12px; width: 54px; }
-  .page-tag { display: none; }
+  #modes button { padding: 3px 8px; font-size: 12px; }
   #panel { padding: 12px 10px; }
-  #tiles { gap: 6px; }
+  .tiles { gap: 6px; }
   .tile { padding: 6px 8px; }
   .tile b { font-size: 16px; }
 }

@@ -38,10 +38,15 @@ export function setChoice(c: Choice) {
 
 /** A colour token, e.g. css('value') for --value. */
 export const css = (name: string) => getComputedStyle(root).getPropertyValue(`--${name}`).trim();
-/** A colour token as 0..1 RGB. */
+/** A colour token as 0..1 RGB. The browser parses it: the built stylesheet is minified (#ffffff becomes #fff,
+ *  and other forms may appear), so the token's text is not a fixed format. */
+const probe = document.createElement('canvas').getContext('2d')!;
 export function rgb(name: string): RGB {
-  const h = css(name).replace('#', '');
-  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as RGB;
+  probe.fillStyle = '#000';
+  probe.fillStyle = css(name) || '#000';
+  const c = String(probe.fillStyle); // '#rrggbb', or 'rgba(r, g, b, a)' when translucent
+  if (c.startsWith('#')) return [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255) as RGB;
+  return (c.match(/[\d.]+/g) ?? ['0', '0', '0']).slice(0, 3).map((v) => +v / 255) as RGB;
 }
 
 /** A button that cycles system -> light -> dark. */

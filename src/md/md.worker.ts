@@ -114,7 +114,10 @@ async function handle(msg: ToMD) {
   switch (msg.type) {
     case 'init':
       if (msg.backend !== 'cpu') {
-        try { raw = await WebGPUBackend.create(); } catch (e) { if (msg.backend === 'webgpu') throw e; }
+        try {
+          raw = await Promise.race([WebGPUBackend.create(),
+            new Promise<never>((_, no) => setTimeout(() => no(new Error('WebGPU did not start within 10 s')), 10000))]);
+        } catch (e) { if (msg.backend === 'webgpu') throw e; }
       }
       counter = countFlops(raw); // models are built on the counted backend, so every kernel they run is counted
       post({ type: 'ready', backend: raw instanceof WebGPUBackend ? `WebGPU · ${raw.adapterName}` : 'JavaScript (no WebGPU)' });

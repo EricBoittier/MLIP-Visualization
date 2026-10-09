@@ -15,11 +15,11 @@ const post = (m: FromWorker, transfer: Transferable[] = []) => (self as any).pos
 
 let be: Backend = new CpuBackend();
 const models = new Map<string, Model>();
-let active: Model | null = null;
+let active: Model | null = null, activeId = '';
 let lastTopo = '';
 let passId = 0;
 
-async function evaluate(m: Model, sys: System, selected: number, mode: ForceMode): Promise<Pass> {
+async function evaluate(m: Model, id: string, sys: System, selected: number, mode: ForceMode): Promise<Pass> {
   const bad = sys.numbers.filter((z) => !m.elements.includes(z));
   if (bad.length) throw new Error(`this model has no parameters for element Z = ${[...new Set(bad)].join(', ')}`);
   if (mode !== 'conservative' && !m.hasNC) mode = 'conservative';
@@ -45,7 +45,7 @@ async function evaluate(m: Model, sys: System, selected: number, mode: ForceMode
     const key = m.kind + topologyKey(ops);
     const c = await capture(g, m, out, { selected });
     const pass: Pass = {
-      id: ++passId, positions: sys.positions, cell: sys.cell, numbers: sys.numbers, mode,
+      id: ++passId, model: id, positions: sys.positions, cell: sys.cell, numbers: sys.numbers, mode,
       energy: read[0][0], energies: read[1],
       trace: { ...c, shapes: g.tape.map((n) => n.out.shape), topology: key !== lastTopo ? ops : undefined,
                rows: out.rows, graph: out.graph,
@@ -73,7 +73,9 @@ async function handle(msg: ToWorker) {
     case 'init': {
       if (msg.backend !== 'cpu') {
         try {
-          be = await WebGPUBackend.create();
+          // some drivers never answer the adapter request: give up on WebGPU after a while and use the CPU
+          be = await Promise.race([WebGPUBackend.create(),
+            new Promise<never>((_, no) => setTimeout(() => no(new Error('WebGPU did not start within 10 s')), 10000))]);
         } catch (e) {
           if (msg.backend === 'webgpu') throw e;
         }
@@ -84,7 +86,7 @@ async function handle(msg: ToWorker) {
     case 'loadModel': {
       const m = await createModel(be, msg.kind, msg.meta, msg.weights, { models, progress: (text, fraction) => post({ type: 'progress', text, fraction }) });
       models.set(msg.id, m);
-      if (msg.activate) { active = m; lastTopo = ''; }
+      if (msg.activate) { active = m; activeId = msg.id; lastTopo = ''; }
       const nParams = [...m.params.values()].reduce((s, t) => s + t.size, 0);
       // a fitted model reports how the fit went (and the structure stays here)
       const meta = (m as any).report ? { ...msg.meta, system: undefined, report: (m as any).report, elements: m.elements } : msg.meta;
@@ -92,12 +94,12 @@ async function handle(msg: ToWorker) {
       break;
     }
     case 'use':
-      active = models.get(msg.id) ?? active;
+      if (models.has(msg.id)) { active = models.get(msg.id)!; activeId = msg.id; }
       lastTopo = '';
       break;
     case 'evaluate': {
       if (!active) throw new Error('load a model first');
-      const pass = await evaluate(active, msg.system, msg.selected, msg.mode);
+      const pass = await evaluate(active, activeId, msg.system, msg.selected, msg.mode);
       const t: Transferable[] = [];
       for (const x of [...pass.trace.values, ...pass.trace.grads]) if (x) t.push(x.data.buffer);
       post({ type: 'pass', pass }, t);
@@ -106,6 +108,8 @@ async function handle(msg: ToWorker) {
   }
 }
 
+// one message at a time, in order: a model switch must not land in the middle of a pass
+let queue = Promise.resolve();
 self.onmessage = (e: MessageEvent<ToWorker>) => {
-  handle(e.data).catch((err) => post({ type: 'error', text: err?.message ?? String(err) }));
+  queue = queue.then(() => handle(e.data)).catch((err) => post({ type: 'error', text: err?.message ?? String(err) }));
 };

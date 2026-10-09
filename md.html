@@ -3,6 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      // a copy of this page cached from before a deploy asks for bundles the deploy removed: reload once (src/app/boot.ts)
+      addEventListener('error', (e) => {
+        const u = e.target && (e.target.src || e.target.href);
+        if (!u || !/\/assets\//.test(u)) return;
+        try { if (sessionStorage.getItem('mlipviz-stale')) return; sessionStorage.setItem('mlipviz-stale', '1'); } catch (_) { return; }
+        location.reload();
+      }, true);
+    </script>
     <title>MLIP Dynamics</title>
     <meta name="description" content="Molecular dynamics (NVE) and diffusion Monte Carlo with machine-learning interatomic potentials, in your browser." />
     <script>

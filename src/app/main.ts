@@ -14,6 +14,7 @@ import { type Hit, NetworkView } from '../viz/network';
 import { Timeline } from '../viz/timeline';
 import type { ForceMode, FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
 import { PRESETS } from './presets';
+import { watchWorker } from './boot';
 import { canSample, fetchBytes, findModels, getJSON, KIND_ORDER, type ModelEntry, resolve } from './catalog';
 import { parseXYZ } from './xyz';
 
@@ -21,6 +22,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 // ------------------------------------------------------------------ engine
 const worker = new Worker(new URL('../worker/engine.worker.ts', import.meta.url), { type: 'module' });
+const workerUp = watchWorker(worker, () => status('<b>The engine did not start.</b> Reload the page; if that does not help, try another browser.'));
 const send = (m: ToWorker, t: Transferable[] = []) => worker.postMessage(m, t);
 
 let meta: any = null;
@@ -89,7 +91,8 @@ function continueStep() {
   follow();
   refresh();
 }
-const drawDiagram = () => net.root && ui && diagram.build(net.root, (m) => ui!.subtitle(m, meta), net.collapsed);
+// only once this model's walk-through exists: until its first pass, net.root is still the last model's
+const drawDiagram = () => steps.length && net.root && ui && diagram.build(net.root, (m) => ui!.subtitle(m, meta), net.collapsed);
 diagram.onNavigate = (m) => {
   timeline.playing = false;
   timeline.seek(m.first);
@@ -434,10 +437,14 @@ let entries: ModelEntry[] = [];
 const loaded = new Set<string>(); // model ids the worker holds
 const waiting = new Map<string, () => void>(); // model id -> resolve, for loads we await
 let active: ModelEntry | null = null;
+/** The model the worker runs, whose passes are drawn. */
+let shown = '';
 
+/** Counts model choices: a download that finishes after a newer choice was made is dropped. */
+let choice = 0;
 function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate = true): Promise<void> {
   return (async () => {
-    const name = e.label ?? e.name;
+    const name = e.label ?? e.name, mine = activate ? ++choice : choice;
     try {
       if (e.kind === 'krr') {
         // KRR's 'weights' are a fit: the second menu says what to fit it to. The teacher labels sampled
@@ -454,12 +461,14 @@ function loadModel(e: ModelEntry, meta0?: any, weights0?: ArrayBuffer, activate 
       }
       const m = meta0 ?? (e.meta ? await getJSON(stem(e.meta)) : {});
       const w = weights0 ?? (e.weights ? await fetchBytes(stem(e.weights), (f, mb) => loader.stage(`Downloading the ${activate ? '' : 'teacher\u2019s '}weights of ${name}: ${mb}`, f)) : null);
+      if (activate && mine !== choice) return; // another model was picked meanwhile
       if (w) loader.stage(activate ? `Building ${name}…` : `Building ${name} (teacher)…`);
       const done = new Promise<void>((r) => waiting.set(e.name, r));
       if (activate) active = e;
       send({ type: 'loadModel', id: e.name, kind: e.kind, meta: m, weights: w, label: name, activate }, w ? [w] : []);
       await done;
     } catch (err) {
+      if (activate && mine !== choice) return;
       loader.hide();
       status(`<b>Could not load ${name}:</b> ${(err as Error).message}`);
       if (!activate) throw err; // a teacher that failed: the fit cannot go on
@@ -518,13 +527,17 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   const m = e.data;
   if (m.type === 'ready') {
     backend = m.backend === 'webgpu' ? `WebGPU · ${m.adapter}` : m.adapter;
-    status(backend);
-    listModels();
+    workerUp();
   } else if (m.type === 'model') {
     loaded.add(m.id);
     waiting.get(m.id)?.();
     waiting.delete(m.id);
     if (!m.activate) return;
+    shown = m.id;
+    // nothing of the last model stays on screen: its diagram and walk-through go until this one's first pass
+    diagram.clear(`Waiting for the first ${UIS[m.kind]?.terms?.forward ?? 'pass'} of ${m.label}…`);
+    steps = [];
+    $('article').innerHTML = '';
     if (!loader.el.hidden) { loader.waitingForPass = true; loader.stage(`Running the first ${UIS[m.kind]?.terms?.forward ?? 'pass'}…`); }
     meta = m.meta;
     hasNC = m.hasNC;
@@ -563,6 +576,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   } else if (m.type === 'pass') {
     busy = false;
     const p = m.pass;
+    if (p.model !== shown) { // from the model before this one
+      if (queued) { queued = false; evaluate(); }
+      return;
+    }
     const fresh = !!p.trace.topology;
     if (fresh) {
       ops = p.trace.topology!;
@@ -599,6 +616,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   } else if (m.type === 'error') {
     busy = false;
     loader.hide();
+    if (!steps.length) diagram.clear('No diagram: the first pass failed (see the error above).');
     status(`<b>Error:</b> ${m.text}`);
     console.error(m.text);
   }
@@ -607,3 +625,5 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
 (window as any).mlipviz = { net, graph, timeline, get pass() { return pass; }, get ops() { return ops; }, get steps() { return steps; } };
 
 send({ type: 'init', backend: new URLSearchParams(location.search).get('backend') as any ?? 'auto' });
+// the menus need only the model index, not the engine: fill them now (the worker takes messages in order)
+listModels();

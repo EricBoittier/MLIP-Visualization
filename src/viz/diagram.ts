@@ -20,6 +20,15 @@ export class Diagram {
     el.appendChild(this.svg);
   }
 
+  /** Empty, with an optional note, until the next build. */
+  clear(note = '') {
+    this.boxes = [];
+    this.svg.setAttribute('viewBox', '0 0 260 24');
+    this.svg.setAttribute('width', '260');
+    this.svg.setAttribute('height', '24');
+    this.svg.innerHTML = note ? `<text x="0" y="15" class="s">${note}</text>` : '';
+  }
+
   build(root: Mod, subtitle: (m: Mod) => string, collapsed: Set<string>, inputLabel = 'positions r, elements Z') {
     const W = Math.max(this.el.clientWidth, 260), right = 26, w0 = W - right - 4;
     const parts: string[] = [];

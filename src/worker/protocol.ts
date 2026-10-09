@@ -44,6 +44,7 @@ export interface Trace {
 
 export interface Pass {
   id: number;
+  model: string; // the id of the model that ran it
   positions: number[][];
   cell?: number[][];
   numbers: number[];

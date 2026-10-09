@@ -10,6 +10,7 @@ import { LineChart } from './chart';
 import { AU_FS, CM, estimate } from './dmc';
 import type { DMCFrame, Flops, Frame, FromMD, MDForces, ToMD } from './md.worker';
 import { TrajectoryView } from './view';
+import { onTheme, themeButton } from '../viz/theme';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const worker = new Worker(new URL('./md.worker.ts', import.meta.url), { type: 'module' });
@@ -22,13 +23,14 @@ const si = (x: number) => {
   return `${(x / 1000 ** k).toPrecision(3)} ${['', 'k', 'M', 'G', 'T'][k]}`;
 };
 
-// categorical slots 1-3 of the chart palette, validated on the dark panel
-const BLUE = '#3987e5', ORANGE = '#d95926', AQUA = '#199e70';
+// series colours are theme tokens: Metatensor blue, red and aqua, validated per theme (app/style.css)
 const view = new TrajectoryView($('traj'));
-const energy = new LineChart($('energy-chart'), [{ name: 'Total', color: AQUA }, { name: 'Potential', color: BLUE }, { name: 'Kinetic', color: ORANGE }], 'eV');
-const temp = new LineChart($('temp-chart'), [{ name: 'Temperature', color: BLUE }], 'K');
-const erefChart = new LineChart($('eref-chart'), [{ name: 'E_ref', color: BLUE }], 'cm⁻¹', 'a.u.');
-const popChart = new LineChart($('pop-chart'), [{ name: 'Walkers', color: BLUE }], '', 'a.u.');
+const energy = new LineChart($('energy-chart'), [{ name: 'Total', color: 'series-3' }, { name: 'Potential', color: 'series-1' }, { name: 'Kinetic', color: 'series-2' }], 'eV');
+const temp = new LineChart($('temp-chart'), [{ name: 'Temperature', color: 'series-1' }], 'K');
+const erefChart = new LineChart($('eref-chart'), [{ name: 'E_ref', color: 'series-1' }], 'cm⁻¹', 'a.u.');
+const popChart = new LineChart($('pop-chart'), [{ name: 'Walkers', color: 'series-1' }], '', 'a.u.');
+themeButton($<HTMLButtonElement>('theme'));
+onTheme(() => [energy, temp, erefChart, popChart].forEach((c) => c.draw()));
 
 // ------------------------------------------------------------------ state
 type Mode = 'md' | 'dmc';

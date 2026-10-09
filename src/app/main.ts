@@ -9,7 +9,9 @@ import { Article, buildSteps, epilogue, fmt, type Step } from '../viz/article';
 import type { Thumb } from '../engine/backend';
 import { eV, fmtUnit, times, type Unit } from '../engine/units';
 import { Diagram } from '../viz/diagram';
-import { ancestors, MOD_COLOR, walk } from '../viz/modules';
+import { ancestors, modColor, walk } from '../viz/modules';
+import { hex, mix, PALETTE } from '../viz/colors';
+import { css, onTheme, themeButton } from '../viz/theme';
 import { type Hit, NetworkView } from '../viz/network';
 import { Timeline } from '../viz/timeline';
 import type { ForceMode, FromWorker, OpInfo, Pass, ToWorker } from '../worker/protocol';
@@ -114,7 +116,7 @@ function refresh(force = false) {
     article.setActive(k);
     const st = steps[k];
     const crumbs = st ? ancestors(st.mod).slice(1) : [];
-    $('chapter-title').innerHTML = crumbs.map((a) => `<span style="color:${MOD_COLOR[a.type]}">${a.short}</span>`).join('<i> › </i>');
+    $('chapter-title').innerHTML = crumbs.map((a) => `<span style="color:${modColor(a.type)}">${a.short}</span>`).join('<i> › </i>');
     $('chapter-phase').textContent = st?.dir === 'bwd' ? terms().backward : terms().forward;
     $('chapter-phase').className = st?.dir === 'bwd' ? 'bwd' : '';
   }
@@ -340,13 +342,14 @@ function drawTimeline() {
   if (!n) return;
   const x = (k: number) => (k / n) * w;
   const fe = timeline.forwardEnd;
-  g.fillStyle = '#1a1e28'; g.fillRect(0, 10, w, 14);
-  g.fillStyle = '#7a4a12'; g.fillRect(0, 10, x(Math.min(timeline.t, fe)), 14);
-  if (timeline.t > fe) { g.fillStyle = '#4c2a78'; g.fillRect(x(fe), 10, x(timeline.t) - x(fe), 14); }
-  g.fillStyle = '#3a4256';
+  const P = PALETTE, faded = (c: number[]) => hex(mix(c, P.bg, 0.45));
+  g.fillStyle = css('control'); g.fillRect(0, 10, w, 14);
+  g.fillStyle = faded(P.value.pos); g.fillRect(0, 10, x(Math.min(timeline.t, fe)), 14);
+  if (timeline.t > fe) { g.fillStyle = faded(P.grad.neg); g.fillRect(x(fe), 10, x(timeline.t) - x(fe), 14); }
+  g.fillStyle = css('line-strong');
   for (const k of stepStart) g.fillRect(x(k), 8, 1, 18);
-  g.fillStyle = '#fff'; g.fillRect(x(timeline.t) - 1, 4, 2, 26);
-  g.fillStyle = '#8a93a6'; g.font = '10px system-ui';
+  g.fillStyle = css('hi'); g.fillRect(x(timeline.t) - 1, 4, 2, 26);
+  g.fillStyle = css('muted'); g.font = '10px system-ui';
   g.fillText(terms().forward, 4, 8); g.fillText(terms().backward, x(fe) + 4, 8);
   const s = timeline.state();
   $('scrub-label').textContent = s.active >= 0 ? `${s.dir === 'fwd' ? '→' : '←'} op ${s.active + 1}/${ops.length} · ${ops[s.active].scope || 'input'} · ${ops[s.active].op}` : 'pass complete';
@@ -603,6 +606,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     console.error(m.text);
   }
 };
+// a new theme: everything drawn from JavaScript is drawn again
+themeButton($<HTMLButtonElement>('theme'));
+onTheme(() => { drawDiagram(); renderArticle(); refresh(true); });
+
 // handy from the console
 (window as any).mlipviz = { net, graph, timeline, get pass() { return pass; }, get ops() { return ops; }, get steps() { return steps; } };
 

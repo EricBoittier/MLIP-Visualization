@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { type System, inv3, isPeriodic } from '../common/structure';
 import { JMOL, RCOV } from '../viz/molecule';
+import { css, mode, onTheme } from '../viz/theme';
 
 const SPHERE = new THREE.SphereGeometry(1, 24, 16);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 10, 1).translate(0, 0.5, 0);
@@ -49,6 +50,11 @@ export class TrajectoryView {
     this.controls.addEventListener('change', () => (this.dirty = true));
     new ResizeObserver(() => this.resize()).observe(el);
     this.resize();
+    onTheme(() => {
+      if (this.bonds) (this.bonds.material as THREE.MeshStandardMaterial).color.set(css('bond'));
+      if (this.cell) (this.cell.material as THREE.LineBasicMaterial).color.set(css('muted'));
+      this.dirty = true;
+    });
     const loop = () => {
       this.controls.update();
       if (this.dirty) { this.renderer.render(this.scene, this.camera); this.dirty = false; }
@@ -75,7 +81,7 @@ export class TrajectoryView {
     this.setCloud(null);
     this.atoms = new THREE.InstancedMesh(SPHERE, new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.05 }), N);
     sys.numbers.forEach((z, i) => this.atoms!.setColorAt(i, new THREE.Color(JMOL[z] ?? 0xb0b0b0)));
-    this.bonds = new THREE.InstancedMesh(CYL, new THREE.MeshStandardMaterial({ roughness: 0.6, color: 0x6b7385 }), Math.max((N * (N - 1)) / 2, 1));
+    this.bonds = new THREE.InstancedMesh(CYL, new THREE.MeshStandardMaterial({ roughness: 0.6, color: css('bond') }), Math.max((N * (N - 1)) / 2, 1));
     this.group.add(this.atoms, this.bonds);
     this.cell = null;
     this.inv = null;
@@ -84,7 +90,7 @@ export class TrajectoryView {
       const k = [o, a, b, c, a.clone().add(b), a.clone().add(c), b.clone().add(c), a.clone().add(b).add(c)];
       const e = [[0, 1], [0, 2], [0, 3], [1, 4], [1, 5], [2, 4], [2, 6], [3, 5], [3, 6], [4, 7], [5, 7], [6, 7]];
       this.cell = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(e.flatMap(([i, j]) => [k[i], k[j]])),
-                                         new THREE.LineBasicMaterial({ color: 0x8a93a6 }));
+                                         new THREE.LineBasicMaterial({ color: css('muted') }));
       this.group.add(this.cell);
       this.inv = inv3(sys.cell!);
     }
@@ -97,7 +103,8 @@ export class TrajectoryView {
     if (this.cloud) { this.group.remove(this.cloud); this.cloud.geometry.dispose(); this.cloud = null; }
     if (!points || !this.sys) return;
     const zs = this.sys.numbers, n = zs.length, geo = new THREE.BufferGeometry(), col = new Float32Array(points.length);
-    for (let p = 0; p < points.length / 3; p++) new THREE.Color(JMOL[zs[p % n]] ?? 0xb0b0b0).toArray(col, 3 * p);
+    const shade = mode() === 'light' ? 0.7 : 1; // white hydrogen would vanish on a light page
+    for (let p = 0; p < points.length / 3; p++) new THREE.Color(JMOL[zs[p % n]] ?? 0xb0b0b0).multiplyScalar(shade).toArray(col, 3 * p);
     geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.cloud = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.14, map: DOT, vertexColors: true, transparent: true, opacity: 0.75, depthWrite: false, alphaTest: 0.05 }));

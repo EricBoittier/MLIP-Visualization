@@ -1,53 +1,64 @@
 # MLIP-Visualization
 
-Machine-learning interatomic potentials running in the browser, with every
-forward and backward pass drawn the way Brendan Bycroft's
-[LLM Visualization](https://bbycroft.net/llm) draws a transformer. Each op's
-tensor is a block of cells holding its real values. Cells fill in as the forward
-pass reaches them and change to gradient colours as the backward pass (which
-gives the forces) flows back. A structure view beside it shows the atoms, the
-model's graph and the forces, coloured by whatever op is playing or by a property
-picked from its menu (atomic energy, |F|, charge, attention).
+Machine-learning interatomic potentials running in the browser, with every forward and backward pass
+drawn the way Brendan Bycroft's [LLM Visualization](https://bbycroft.net/llm) draws a transformer.
 
-Models:
+Try it on [GitHub Pages](https://ericboittier.github.io/MLIP-Visualization/) or as a
+[Hugging Face Space](https://huggingface.co/spaces/EricBoi/mlip-visualization). Both serve the same
+static build, and everything runs on your machine.
+
+![PET-MAD XS on ethanol, late in the backward pass](docs/viz-dark.jpg)
+
+Each op's output is a block of cells holding its actual values. Cells fill in as the forward pass
+reaches them and switch to gradient colours as the backward pass, which gives the forces, comes back.
+Next to the network, the structure view shows the atoms, the graph the model uses and the forces,
+coloured by the current op or by atomic energy, |F|, charge or attention.
+
+The models run in a Web Worker on a small tape-based autograd engine written in TypeScript, with a CPU
+backend and a WebGPU backend (WGSL kernels for every op, forward and backward).
 
 | model | family | status |
 |---|---|---|
-| PET (PET-MAD, PET-MOLS) | point edge transformer | runs, verified against metatrain |
-| ANI-2x | Behler–Parrinello network | runs, verified against TorchANI |
-| KRR with SOAP | kernel method, fitted in the browser to another model | runs; forces checked by finite differences |
-| PhysNet (mmml physnetjax, invariant) | message-passing network with charges and electrostatics | runs, verified against the JAX code; demo model trained on acetone dimers |
-| MACE (MACE-MP-0) | equivariant message passing (ACE) | runs, verified against mace-torch |
-| LOREM | equivariant message passing with a long-range Coulomb head | runs, verified against metatrain's experimental port; the shipped checkpoint is a small random initialization |
+| PET (PET-MAD, PET-MOLS) | point edge transformer | verified against metatrain |
+| ANI-2x | Behler–Parrinello network | verified against TorchANI |
+| KRR with SOAP | kernel method, fitted in the browser to another model | forces checked by finite differences |
+| PhysNet (mmml physnetjax, invariant) | message passing with charges and electrostatics | verified against the JAX code; demo model trained on acetone dimers |
+| MACE (MACE-MP-0) | equivariant message passing (ACE) | verified against mace-torch |
+| LOREM | equivariant message passing with a long-range Coulomb head | verified against metatrain's experimental port; the checkpoint is an untrained random initialization |
 
-SpookyNet is left for later.
+SpookyNet is not done yet.
 
-Everything runs locally: a small tape-based autograd engine in TypeScript with
-a CPU backend and a WebGPU backend (WGSL kernels for every op, forward and
-backward), in a Web Worker.
+## Dynamics and diffusion Monte Carlo
 
-## Dynamics
+![Diffusion Monte Carlo on ethanol with ANI-2x](docs/dmc-dark.jpg)
 
-`md.html` (the *MD & DMC* link in the header) simulates with the models that have production weights and
-local interactions: PET, MACE and ANI-2x. PhysNet and LOREM ship demo weights, and KRR is fitted per
-structure, so they stay on the visualiser. `?mode=dmc&model=<name>&structure=<preset>` picks the starting point.
+`md.html`, linked as "MD & DMC" in the header, runs simulations with PET, MACE or ANI-2x. PhysNet and
+LOREM are left out because their weights are demos, and KRR because it is fitted to a single structure.
 
-- **NVE dynamics**: velocity Verlet from Maxwell–Boltzmann velocities with no net momentum. It plots kinetic,
-  potential and total energy and the temperature. It can also use a model's direct force head, which is not
-  the gradient of an energy, so you can watch the total energy drift.
-- **Diffusion Monte Carlo**: the vibrational ground state of an isolated molecule. The structure is relaxed
-  (FIRE) first, then an unguided DMC population is propagated (Anderson, discrete branching). The page
-  reports the zero-point energy as the mean of E_ref − V_min over the second half of the run, with a blocking
-  error, and draws the walker cloud aligned onto the minimum. It needs only energies, so every walker is
-  evaluated in a few large batched passes. Copies of the molecule are laid out further apart than any
-  model's cutoff, and each copy's energy is the sum of its atoms' energies. The pass size is 4096 atoms for PET and ANI-2x and 512 for
-  MACE. It halves automatically if the GPU refuses a buffer, and `?maxAtoms=` overrides it. Walkers far below the minimum have found holes in the surface and are removed and counted.
+NVE mode runs velocity Verlet from Maxwell–Boltzmann velocities and plots the energies and the
+temperature. Models with a direct force head can drive the dynamics with those forces instead. They are
+not the gradient of an energy, so the total energy drifts.
 
-Both report the FLOPs per step, estimated from the shapes of the kernels the model runs
-(`src/engine/flops.ts`; a multiply-add counts as 2), the rate they run at, and ns/day (MD) or billion
-samples/day (DMC).
+DMC mode estimates the zero-point energy of an isolated molecule. The structure is relaxed with FIRE
+first, then an unguided population of walkers is propagated with discrete branching. The estimate is
+the mean of E_ref − V_min over the second half of the run, with a blocking error. DMC only needs
+energies, so the walkers go through the model together: copies of the molecule are placed further apart
+than the cutoff, and each copy's energy is the sum of its atomic energies. A pass holds up to 4096 atoms
+for PET and ANI-2x and 512 for MACE, and is halved if the GPU refuses a buffer (`?maxAtoms=` overrides
+this). Walkers that fall far below the minimum have found a hole in the model and are removed.
 
-## Running
+Both modes count FLOPs per step from the shapes of the kernels each model runs (`src/engine/flops.ts`,
+a multiply-add is 2), and report the rate, ns/day for MD and samples per day for DMC.
+`?mode=dmc&model=<name>&structure=<preset>` sets the starting point.
+
+## Light and dark
+
+The app follows the system setting; the button in the header switches between system, light and dark.
+The colours come from [Metatensor](https://docs.metatensor.org) and metatomic.
+
+![The visualiser in the light theme](docs/viz-light.jpg)
+
+## Running locally
 
 ```bash
 npm install
@@ -72,33 +83,31 @@ PhysNet models come from mmml's `physnetjax` (invariant, `max_degree = 0`):
 uv run scripts/export_physnet.py --params acetone.params.json --out public/models/physnet-acetone --elements 1,6,8
 ```
 
-KRR/SOAP needs no files: it is fitted in the browser, on rattled copies of the
-current structure labelled by another loaded model (the "teacher"). Only models with production
-weights (PET, MACE, ANI-2x) can be teachers, since PhysNet and LOREM ship demo weights.
+KRR/SOAP needs no files. It is fitted in the browser on rattled copies of the current structure,
+labelled by another model (the teacher), which has to be one with production weights: PET, MACE or
+ANI-2x.
 
-`public/models/index.json` lists the models the app offers. When `public/models/` has no
-weights (a deployed build), the app downloads them from the Hugging Face repository
-[EricBoi/mlip-visualization-models](https://huggingface.co/EricBoi/mlip-visualization-models);
-`?models=<base url>` points it at any other folder with an `index.json`. To publish the local
-models there, with a model card giving each one's source and licence:
+`public/models/index.json` lists the models the app offers. If `public/models/` has no weights, as in a
+deployed build, the app downloads them from
+[EricBoi/mlip-visualization-models](https://huggingface.co/EricBoi/mlip-visualization-models) on
+Hugging Face. `?models=<base url>` points it at another folder with an `index.json`. To upload the
+local models there, with a model card listing each one's source and licence (log in with
+`hf auth login` first):
 
 ```bash
-HF_TOKEN=hf_... uv run scripts/publish_weights.py   # --dry-run lists the files first
+uv run scripts/publish_weights.py --dry-run   # lists the files
+uv run scripts/publish_weights.py
 ```
 
 ## Deployment
 
-The app is a static site: `npm run build` writes it to `dist/`, and everything runs in the
-visitor's browser. `.github/workflows/deploy.yml` builds it on every push to `main` and publishes it:
-
-- **GitHub Pages**: https://ericboittier.github.io/MLIP-Visualization/ (Settings → Pages → Source: GitHub Actions).
-- **Hugging Face Space** (static): https://huggingface.co/spaces/EricBoi/mlip-visualization, once the repository has an
-  `HF_TOKEN` secret with write access (`gh secret set HF_TOKEN`). Without it the job skips itself.
-  `uv run scripts/deploy_space.py` does the same from your machine after `npm run build`.
-
-Neither deployment carries the weights. The deployed app downloads them from the public model repository
-https://huggingface.co/EricBoi/mlip-visualization-models, which `scripts/publish_weights.py` creates and fills from
-`public/models/` (log in first with `hf auth login`, then `uv run scripts/publish_weights.py --dry-run` to check).
+`npm run build` writes a static site to `dist/`. On every push to `main`,
+`.github/workflows/deploy.yml` builds it and publishes it to
+[GitHub Pages](https://ericboittier.github.io/MLIP-Visualization/) and to the
+[Hugging Face Space](https://huggingface.co/spaces/EricBoi/mlip-visualization). The Space step needs an
+`HF_TOKEN` repository secret with write access and skips itself without one;
+`uv run scripts/deploy_space.py` does the same from your machine after a build. Neither deployment
+includes the weights, which come from the model repository above.
 
 ## Tests
 

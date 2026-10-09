@@ -5,7 +5,7 @@
 import { SYMBOLS } from '../common/elements';
 import type { ModelUI } from '../models/ui';
 import type { OpInfo, Pass } from '../worker/protocol';
-import { ancestors, type Mod, MOD_COLOR } from './modules';
+import { ancestors, type Mod, modColor } from './modules';
 
 export interface Step {
   mod: Mod;
@@ -62,7 +62,7 @@ export function describe(i: number, mod: Mod, c: Ctx, lastOp = i): { key: string
 function stepHTML(step: Step, c: Ctx): string {
   if (step.dir === 'bwd') {
     const m = step.mod;
-    return `<span class="tag" style="color:${MOD_COLOR[m.type]}">${m.title}</span> ` + (c.ui.back?.(m, c, step.ops) ?? `Gradient through ${m.title.toLowerCase()}.`);
+    return `<span class="tag" style="color:${modColor(m.type)}">${m.title}</span> ` + (c.ui.back?.(m, c, step.ops) ?? `Gradient through ${m.title.toLowerCase()}.`);
   }
   const anchor = step.ops.find((i) => describe(i, step.mod, c).key !== 'cont') ?? step.ops[0];
   return describe(anchor, step.mod, c, step.ops[step.ops.length - 1]).html;
@@ -95,17 +95,17 @@ export class Article {
       if (s.dir === 'fwd' && head !== section) {
         section = head;
         const crumbs = ancestors(s.mod).slice(1);
-        const color = MOD_COLOR[s.mod.type];
+        const color = modColor(s.mod.type);
         out.push(`<h2 class="sec" style="--c:${color}">${crumbs.map((m, i) => i < crumbs.length - 1 ? `<span>${m.title}</span> › ` : m.title).join('')}</h2>`);
         const lead = ctx.ui.narration(s.mod, ctx.meta);
         if (lead) out.push(`<div class="lead">${lead}</div>`);
       }
-      const color = MOD_COLOR[s.mod.type];
+      const color = modColor(s.mod.type);
       let html = '';
       try { html = stepHTML(s, ctx); } catch (e) { html = (e as Error).message; }
       out.push(`<p class="step ${s.dir}" data-step="${k}" style="--c:${color}">${html}</p>`);
     });
-    if (epilogue) out.push(`<h2 class="sec" style="--c:#a3e635">Forces</h2><div class="lead">${epilogue}</div>`);
+    if (epilogue) out.push(`<h2 class="sec" style="--c:var(--grad-pos)">Forces</h2><div class="lead">${epilogue}</div>`);
     this.el.innerHTML = out.join('');
     this.stepEls = [...this.el.querySelectorAll<HTMLElement>('[data-step]')];
     const a = this.active;

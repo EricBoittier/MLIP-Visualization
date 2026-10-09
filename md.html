@@ -14,6 +14,10 @@
     </script>
     <title>MLIP Dynamics</title>
     <meta name="description" content="Molecular dynamics (NVE) and diffusion Monte Carlo with machine-learning interatomic potentials, in your browser." />
+    <script>
+      // the saved theme (or the system's), before the first paint; see src/viz/theme.ts
+      try { const t = localStorage.getItem('mlipviz-theme'); document.documentElement.dataset.theme = t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) {}
+    </script>
   </head>
   <body class="md mode-md">
     <header>
@@ -35,6 +39,7 @@
       <label class="dmc-only" title="Imaginary time step, atomic units (applies immediately)">Δτ <input id="dtau" type="number" value="10" min="0.5" max="50" step="1" /> a.u.</label>
       <button id="run" class="on" title="Run or pause (Space)">Pause</button>
       <button id="restart" title="Start again from the starting structure (R)">Restart</button>
+      <button id="theme" title="Theme"></button>
       <div id="status">starting…</div>
     </header>
     <main>
@@ -77,24 +82,22 @@
           <div id="pop-chart"></div>
         </figure>
         <p class="note md-only">
-          Velocity Verlet at constant particle number, volume and energy, with forces from the model in the
-          browser. A good potential and time step keep the <b>total</b> energy flat while kinetic and potential
-          energy trade places. Starting from a relaxed structure, about half the initial kinetic energy flows into
-          the potential, so the temperature settles near T₀/2. <b>Direct</b> forces are not the gradient of any
-          energy, so the total drifts. Too large a Δt does the same, faster.
+          Velocity Verlet at constant N, V and E. When the forces are the gradient of the energy and Δt is small
+          enough, the total energy stays flat while kinetic and potential energy swap. From a relaxed start about
+          half the initial kinetic energy goes into the potential, so the temperature settles near T₀/2. Direct
+          forces are not a gradient, so the total energy drifts with them, and so it does with too large a Δt.
         </p>
         <p class="note dmc-only">
-          Diffusion Monte Carlo treats the nuclei as quantum particles. The structure is relaxed on the model's
-          surface first. Then walkers, each a copy of the molecule, take random steps sized by ħ²Δτ/m. Each walker
-          is copied or removed with weight exp(−Δτ (V − E<sub>ref</sub>)), and E<sub>ref</sub> is steered to keep the
-          population steady. The population settles into the vibrational ground state, and the mean of
-          E<sub>ref</sub> above the minimum is the <b>zero-point energy</b>. The cloud shows where the walkers are
-          (light atoms spread furthest). Only energies are needed, so every walker is evaluated in batched passes.
-          Walkers that fall far below the minimum have found a <b>hole</b> in the surface and are removed.
+          Diffusion Monte Carlo for the nuclei. The structure is relaxed on the model's surface, then each walker,
+          a copy of the molecule, takes Gaussian steps of variance ħ²Δτ/m and is copied or removed with weight
+          exp(−Δτ (V − E<sub>ref</sub>)). E<sub>ref</sub> is adjusted to keep the number of walkers near the
+          target, and its average above the minimum is the zero-point energy. The cloud shows the walkers aligned
+          on the minimum; hydrogens spread the most. Walkers far below the minimum are in a hole in the model's
+          surface and are removed.
         </p>
         <p class="note" id="flops-note">
-          FLOPs are estimated from the shapes of the kernels the model runs (a multiply-add counts as 2). The rate
-          includes everything else in a step: the neighbour list, data transfer and the read-back of results.
+          FLOPs are counted from the shapes of the kernels the model runs, with a multiply-add as 2. The rate is
+          over the whole step, so it also covers the neighbour list, data transfers and reading back the results.
         </p>
       </aside>
     </main>

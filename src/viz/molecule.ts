@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SYMBOLS } from '../common/elements';
 import type { AttentionMap, OpInfo, Pass } from '../worker/protocol';
-import { PALETTE } from './colors';
+import { mix, PALETTE } from './colors';
+import { css, onTheme } from './theme';
 
 export interface MolState {
   op: number; // active op, -1 for none
@@ -27,8 +28,13 @@ export const JMOL: Record<number, number> = {
 export const RCOV: Record<number, number> = { 1: 0.31, 5: 0.84, 6: 0.76, 7: 0.71, 8: 0.66, 9: 0.57, 11: 1.66, 14: 1.11, 15: 1.07, 16: 1.05, 17: 1.02, 35: 1.2, 53: 1.39 };
 
 /** Sequential (dark to bright) and diverging (blue / grey / red) colour maps. */
-const SEQ = [[0.12, 0.13, 0.18], [0.42, 0.22, 0.55], [0.85, 0.35, 0.33], [0.99, 0.74, 0.28], [1, 0.98, 0.75]];
-const DIV = [[0.2, 0.42, 0.9], [0.55, 0.68, 0.95], [0.82, 0.83, 0.86], [0.96, 0.62, 0.5], [0.85, 0.2, 0.2]];
+/** Sequential: Metatensor blues, from the background towards the strongest contrast (dark: up to ice blue,
+ *  light: down to navy). Diverging: the logo's blue and red about a neutral grey. */
+const hexRGB = (h: string) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16) / 255);
+const SEQ_DARK = ['#2b3035', '#2f4f9a', '#4273d7', '#6c92e0', '#abe1ed', '#e0edff'].map(hexRGB);
+const SEQ_LIGHT = ['#eef0f3', '#abe1ed', '#6c92e0', '#4273d7', '#2a4fae', '#053e8d'].map(hexRGB);
+const DIV = ['#4273d7', '#6c92e0', '#d3d6dc', '#e0776c', '#d75142'].map(hexRGB);
+const seq = () => (PALETTE.dark ? SEQ_DARK : SEQ_LIGHT);
 function ramp(stops: number[][], t: number) {
   t = Math.min(Math.max(t, 0), 1) * (stops.length - 1);
   const k = Math.min(Math.floor(t), stops.length - 2), f = t - k;
@@ -76,7 +82,12 @@ export class MoleculeView {
     sun.position.set(3, 5, 6);
     this.camera.add(sun);
     this.scene.add(this.camera, this.group);
-    this.halo = new THREE.Mesh(SPHERE, new THREE.MeshBasicMaterial({ color: 0xf99e29, transparent: true, opacity: 0.28, depthWrite: false }));
+    this.halo = new THREE.Mesh(SPHERE, new THREE.MeshBasicMaterial({ color: new THREE.Color(...PALETTE.value.pos), transparent: true, opacity: 0.28, depthWrite: false }));
+    onTheme(() => {
+      (this.halo.material as THREE.MeshBasicMaterial).color.setRGB(...PALETTE.value.pos);
+      if (this.cell) (this.cell.material as THREE.LineBasicMaterial).color.set(css('muted'));
+      this.update();
+    });
     this.group.add(this.halo);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -182,7 +193,7 @@ export class MoleculeView {
       const corners = [o, a, b, c, a.clone().add(b), a.clone().add(c), b.clone().add(c), a.clone().add(b).add(c)];
       const e = [[0, 1], [0, 2], [0, 3], [1, 4], [1, 5], [2, 4], [2, 6], [3, 5], [3, 6], [4, 7], [5, 7], [6, 7]];
       this.cell = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(e.flatMap(([i, j]) => [corners[i], corners[j]])),
-                                         new THREE.LineBasicMaterial({ color: 0x8a93a6 }));
+                                         new THREE.LineBasicMaterial({ color: css('muted') }));
       this.group.add(this.cell);
     } else this.cell = null;
     if (fit) this.fit();
@@ -267,7 +278,7 @@ export class MoleculeView {
     for (let i = 0; i < N; i++) {
       if (!vals) col.setHex(JMOL[p.numbers[i]] ?? 0xb0b0b0);
       else if (signed) col.setRGB(...(ramp(DIV, ((vals[i] - meanE) - lo) / (hi - lo || 1)) as [number, number, number]));
-      else col.setRGB(...(ramp(SEQ, (vals[i] - Math.min(lo, 0)) / ((hi - Math.min(lo, 0)) || 1)) as [number, number, number]));
+      else col.setRGB(...(ramp(seq(), (vals[i] - Math.min(lo, 0)) / ((hi - Math.min(lo, 0)) || 1)) as [number, number, number]));
       if (s.hover?.atom === i) col.lerp(new THREE.Color(1, 1, 1), 0.5);
       this.atoms.setColorAt(i, col);
     }
@@ -288,22 +299,23 @@ export class MoleculeView {
       const rad = hot ? 0.09 : mine ? 0.06 : 0.03;
       q.setFromUnitVectors(UP, vec.clone().normalize());
       this.edges.setMatrixAt(e, m4.compose(from, q, new THREE.Vector3(rad, len, rad)));
-      let c: number[] = mine ? [0.62, 0.66, 0.74] : [0.4, 0.43, 0.5];
-      if (attnEdge) c = attnEdge.has(e) ? ramp([[0.3, 0.3, 0.3], PALETTE.attention], Math.sqrt(attnEdge.get(e)! / amax)) : [0.3, 0.32, 0.36];
-      else if (hasEdge && edgeVals[e] === edgeVals[e]) c = ramp([[0.3, 0.32, 0.38], edgeKind === 'grad' ? PALETTE.grad.neg : PALETTE.value.pos], Math.sqrt(edgeVals[e] / emax));
-      if (hot) c = [1, 1, 1];
+      const P = PALETTE, faint = mix(P.edge, P.bg, 0.35);
+      let c: number[] = mine ? P.edgeMine : P.edge;
+      if (attnEdge) c = attnEdge.has(e) ? ramp([faint, P.attention], Math.sqrt(attnEdge.get(e)! / amax)) : faint;
+      else if (hasEdge && edgeVals[e] === edgeVals[e]) c = ramp([faint, edgeKind === 'grad' ? P.grad.neg : P.value.pos], Math.sqrt(edgeVals[e] / emax));
+      if (hot) c = P.hi;
       this.edges.setColorAt(e, new THREE.Color(...(c as [number, number, number])));
     }
     this.edges.instanceMatrix.needsUpdate = true;
     if (this.edges.instanceColor) this.edges.instanceColor.needsUpdate = true;
 
-    // ---- forces: conservative (violet) and direct (lime), on one scale
-    const sets: [Float32Array | undefined, number][] = [[p.forces, 0x8b5cf6], [p.ncForces, 0x84cc16]];
+    // ---- forces: conservative (violet) and direct (green), on one scale
+    const sets: [Float32Array | undefined, number[]][] = [[p.forces, PALETTE.force], [p.ncForces, PALETTE.forceNC]];
     const fmax = Math.max(1e-9, ...sets.flatMap(([Fs]) => (Fs ? Array.from({ length: N }, (_, i) => Math.hypot(Fs[3 * i], Fs[3 * i + 1], Fs[3 * i + 2])) : [])));
     sets.forEach(([Fs, color], k) => {
       const shaft = this.arrows[k], head = shaft.children[0] as THREE.InstancedMesh;
       shaft.visible = !!Fs && s.forces && this.showForces;
-      (shaft.material as THREE.MeshStandardMaterial).color.setHex(color);
+      (shaft.material as THREE.MeshStandardMaterial).color.setRGB(color[0], color[1], color[2]);
       if (!Fs) return;
       for (let i = 0; i < N; i++) {
         const f = new THREE.Vector3(Fs[3 * i], Fs[3 * i + 1], Fs[3 * i + 2]), L = (1.3 * f.length()) / fmax;
@@ -342,7 +354,7 @@ export class MoleculeView {
     if (!l) return;
     const g = this.bar.getContext('2d')!;
     for (let x = 0; x < this.bar.width; x++) {
-      const c = ramp(l.signed ? DIV : SEQ, x / (this.bar.width - 1));
+      const c = ramp(l.signed ? DIV : seq(), x / (this.bar.width - 1));
       g.fillStyle = `rgb(${c.map((v) => Math.round(255 * v)).join(',')})`;
       g.fillRect(x, 0, 1, this.bar.height);
     }

@@ -1,8 +1,9 @@
 // A small streaming line chart on a canvas: one y axis, a legend, end labels and a hover crosshair.
+// Colours are theme tokens (app/style.css), read at every draw.
+import { css } from '../viz/theme';
 
+/** `color`: a colour token, e.g. 'series-1' for --series-1. */
 export interface Series { name: string; color: string; dash?: number[] }
-
-const TEXT = '#d7dbe4', MUTED = '#8a93a6', GRID = '#232835', SURFACE = '#12151c';
 const MAX_POINTS = 4000;
 
 /** 'Nice' tick values covering [lo, hi]. */
@@ -30,7 +31,7 @@ export class LineChart {
     if (series.length > 1) {
       const legend = document.createElement('div');
       legend.className = 'chart-legend';
-      legend.innerHTML = series.map((s) => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join('');
+      legend.innerHTML = series.map((s) => `<span><i style="background:var(--${s.color})"></i>${s.name}</span>`).join('');
       el.appendChild(legend);
     }
     const plot = document.createElement('div');
@@ -64,6 +65,7 @@ export class LineChart {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
     g.font = '11px system-ui, -apple-system, sans-serif';
+    const TEXT = css('text'), MUTED = css('muted'), GRID = css('line'), SURFACE = css('panel'), color = (s: Series) => css(s.color);
 
     const n = this.t.length;
     let lo = Infinity, hi = -Infinity;
@@ -104,7 +106,7 @@ export class LineChart {
     g.lineWidth = 2; g.lineJoin = 'round';
     this.series.forEach((s, k) => {
       if (!n) return;
-      g.strokeStyle = s.color; g.setLineDash(s.dash ?? []);
+      g.strokeStyle = color(s); g.setLineDash(s.dash ?? []);
       g.beginPath();
       this.t.forEach((t, i) => (i ? g.lineTo(X(t), Y(this.y[k][i])) : g.moveTo(X(t), Y(this.y[k][i]))));
       g.stroke();
@@ -129,11 +131,11 @@ export class LineChart {
     g.beginPath(); g.moveTo(Math.round(x) + 0.5, T); g.lineTo(Math.round(x) + 0.5, H - B); g.stroke();
     this.series.forEach((s, k) => {
       g.beginPath(); g.arc(x, Y(this.y[k][i]), 4, 0, 2 * Math.PI);
-      g.fillStyle = s.color; g.fill(); g.lineWidth = 2; g.strokeStyle = SURFACE; g.stroke();
+      g.fillStyle = color(s); g.fill(); g.lineWidth = 2; g.strokeStyle = SURFACE; g.stroke();
     });
     this.tip.hidden = false;
     this.tip.innerHTML = `<div class="tt-head">t = ${this.t[i].toFixed(1)} ${this.xUnit}</div>` + this.series.map((s, k) =>
-      `<div><i style="background:${s.color}"></i>${s.name}<b>${fmt(this.y[k][i], yt.step / 10)} ${this.unit}</b></div>`).join('');
+      `<div><i style="background:var(--${s.color})"></i>${s.name}<b>${fmt(this.y[k][i], yt.step / 10)} ${this.unit}</b></div>`).join('');
     const tw = this.tip.offsetWidth;
     this.tip.style.left = `${x + 12 + tw > W ? x - 12 - tw : x + 12}px`;
     this.tip.style.top = `${T}px`;

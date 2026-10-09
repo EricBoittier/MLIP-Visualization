@@ -2,7 +2,7 @@
 // boxes coloured by module type, arrows for the data flow, a dashed backward arrow
 // from the energy to the positions, progress bars, and the active module lit up.
 // Clicking a box jumps there; its ± collapses the module in the 3D view.
-import { type Mod, MOD_COLOR } from './modules';
+import { type Mod, modColor } from './modules';
 
 const NS = 'http://www.w3.org/2000/svg';
 const LEAF = 30, TITLE = 19, PAD = 6, VGAP = 13, HGAP = 10;
@@ -42,14 +42,14 @@ export class Diagram {
       parts.push(`<path d="M${x0},${y} L${x1 - 1},${y}" class="arrow" marker-end="url(#ah)"/>`);
 
     const leaf = (m: Mod, x: number, y: number, w: number, h = LEAF) => {
-      const c = MOD_COLOR[m.type], k = refs.length;
+      const c = modColor(m.type), k = refs.length;
       refs.push({ mod: m, w });
       const sub = subtitle(m);
       const toggle = subs(m).length ? `<text x="${x + w - 9}" y="${y + 12}" class="tg" data-t="${k}">${collapsed.has(m.id) ? '+' : '−'}</text>` : '';
       parts.push(`<g class="box" data-k="${k}">
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" fill="${c}" fill-opacity="0.16" stroke="${c}" class="b"/>
-        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#f99e29" class="pf"/>
-        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#a855f7" class="pb"/>
+        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" class="pf"/>
+        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" class="pb"/>
         <text x="${x + 7}" y="${y + 13}" class="t" fill="${c}" data-short="${esc(m.short)}">${esc(w < 90 ? m.short : m.title)}</text>
         ${sub && w >= 70 ? `<text x="${x + 7}" y="${y + 24}" class="s">${esc(sub)}</text>` : ''}${toggle}</g>`);
     };
@@ -59,7 +59,7 @@ export class Diagram {
       const kids = subs(m);
       if (!kids.length || collapsed.has(m.id)) { leaf(m, x, y, w); return LEAF; }
       // container: title row, then children in a row (if they fit) or a column
-      const c = MOD_COLOR[m.type], k = refs.length;
+      const c = modColor(m.type), k = refs.length;
       refs.push({ mod: m, w });
       const inner = w - 2 * PAD;
       const horizontal = kids.every((q) => !subs(q).length) && kids.length > 1 && inner / kids.length >= 52;
@@ -91,8 +91,8 @@ export class Diagram {
       }
       parts.push(`<g class="box frame" data-k="${k}">
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" fill="${c}" fill-opacity="0.06" stroke="${c}" stroke-opacity="0.7" class="b"/>
-        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#f99e29" class="pf"/>
-        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" fill="#a855f7" class="pb"/>
+        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" class="pf"/>
+        <rect x="${x + 1}" y="${y + h - 3.5}" width="0" height="2.5" class="pb"/>
         <text x="${x + 7}" y="${y + 13}" class="t" fill="${c}" data-short="${esc(m.short)}">${esc(m.title)}</text>
         <text x="${x + w - 9}" y="${y + 12}" class="tg" data-t="${k}">−</text></g>`);
       body.forEach((f) => f());
@@ -119,8 +119,8 @@ export class Diagram {
     this.svg.setAttribute('width', `${W}`);
     this.svg.setAttribute('height', `${y}`);
     this.svg.innerHTML = `<defs>
-      <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7b8496"/></marker>
-      <marker id="ahb" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#a855f7"/></marker>
+      <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="ah"/></marker>
+      <marker id="ahb" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="ahb"/></marker>
     </defs>${parts.join('')}`;
     this.fitText();
     this.boxes = refs.map((r, k) => {

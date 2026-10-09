@@ -14,6 +14,10 @@
     </script>
     <title>MLIP Visualization</title>
     <meta name="description" content="Machine-learning interatomic potentials (PET, ANI-2x, KRR/SOAP, PhysNet) running in your browser, with every forward and backward pass visualised." />
+    <script>
+      // the saved theme (or the system's), before the first paint; see src/viz/theme.ts
+      try { const t = localStorage.getItem('mlipviz-theme'); document.documentElement.dataset.theme = t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) {}
+    </script>
   </head>
   <body>
     <header>
@@ -29,6 +33,7 @@
         <option value="both">both, compared</option></select></label>
       <button id="rattle" title="Displace every atom a little and run a new pass">Rattle</button>
       <a class="nav" id="md-link" href="md.html" title="Molecular dynamics and diffusion Monte Carlo with this model">MD &amp; DMC →</a>
+      <button id="theme" title="Theme"></button>
       <div id="status"></div>
     </header>
     <main>

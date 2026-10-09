@@ -11,9 +11,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Text } from 'troika-three-text';
 import type { Thumb } from '../engine/backend';
 import type { OpInfo, Trace } from '../worker/protocol';
-import { glslVec, PALETTE } from './colors';
+import { hex, mix, PALETTE } from './colors';
+import { css, onTheme } from './theme';
 import { type Layout, layout, LABEL, type Rect } from './layout';
-import { buildTree, type Describe, leafOf, type Mod, MOD_COLOR, walk } from './modules';
+import { buildTree, type Describe, leafOf, type Mod, modColor, walk } from './modules';
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -25,13 +26,13 @@ precision highp float;
 uniform sampler2D uVal;
 uniform sampler2D uGrad;
 uniform vec2 uDims;
-uniform float uVScale, uGScale, uReveal, uGReveal, uActive, uKind, uHasGrad, uHiRow, uCellPx;
+uniform float uVScale, uGScale, uReveal, uGReveal, uActive, uKind, uHasGrad, uHiRow, uCellPx, uDark;
+uniform vec3 uMid, uEmpty, uValNeg, uValPos, uGradNeg, uGradPos, uWNeg, uWPos, uAttn, uHi, uGlow;
 varying vec2 vUv;
 varying vec3 vN;
 vec3 diverge(float t, vec3 neg, vec3 pos) {
   t = clamp(t, -1.0, 1.0);
-  vec3 mid = ${glslVec(PALETTE.mid)};
-  return t < 0.0 ? mix(mid, neg, sqrt(-t)) : mix(mid, pos, sqrt(t));
+  return t < 0.0 ? mix(uMid, neg, sqrt(-t)) : mix(uMid, pos, sqrt(t));
 }
 void main() {
   vec2 g = vUv * uDims;
@@ -40,22 +41,23 @@ void main() {
   float row = uDims.y - 1.0 - cell.y;
   vec2 tc = vec2((cell.x + 0.5) / uDims.x, (row + 0.5) / uDims.y);
   float order = (row + (cell.x + 0.5) / uDims.x) / uDims.y;
-  vec3 col = vec3(0.115, 0.125, 0.155);
+  vec3 col = uEmpty;
   if (order < uReveal) {
     float v = texture2D(uVal, tc).r / uVScale;
-    if (uKind > 1.5) col = mix(${glslVec(PALETTE.mid)}, ${glslVec(PALETTE.attention)}, sqrt(clamp(v, 0.0, 1.0)));
-    else if (uKind > 0.5) col = diverge(v, ${glslVec(PALETTE.weight.neg)}, ${glslVec(PALETTE.weight.pos)});
-    else col = diverge(v, ${glslVec(PALETTE.value.neg)}, ${glslVec(PALETTE.value.pos)});
+    if (uKind > 1.5) col = mix(uMid, uAttn, sqrt(clamp(v, 0.0, 1.0)));
+    else if (uKind > 0.5) col = diverge(v, uWNeg, uWPos);
+    else col = diverge(v, uValNeg, uValPos);
   }
   if (uHasGrad > 0.5 && 1.0 - order < uGReveal) {
     float gv = texture2D(uGrad, tc).r / uGScale;
-    col = diverge(gv, ${glslVec(PALETTE.grad.neg)}, ${glslVec(PALETTE.grad.pos)});
+    col = diverge(gv, uGradNeg, uGradPos);
   }
   float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
   col *= mix(mix(0.5, 1.0, smoothstep(0.03, 0.15, e)), 1.0, 1.0 - smoothstep(2.5, 6.0, uCellPx));
-  if (abs(row - uHiRow) < 0.5) col = mix(col, vec3(1.0), 0.35);
+  if (abs(row - uHiRow) < 0.5) col = mix(col, uHi, 0.35);
   if (abs(vN.z) < 0.5) col *= 0.55;
-  col += uActive * vec3(0.12, 0.13, 0.18);
+  // the active op: lit up on dark, tinted with the accent on light
+  col = uDark > 0.5 ? col + uActive * vec3(0.12, 0.13, 0.18) : mix(col, uGlow, uActive * 0.22);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -87,6 +89,18 @@ interface Label { text: Text; size: number; maxPx: number }
 
 /** On-screen size of one cell, shared by every block's material. */
 const CELL_PX = { value: 10 };
+/** The theme's colours, shared by every block's material (one update recolours them all). */
+const vec = () => ({ value: new THREE.Vector3() });
+const COLORS = { uMid: vec(), uEmpty: vec(), uValNeg: vec(), uValPos: vec(), uGradNeg: vec(), uGradPos: vec(), uWNeg: vec(),
+                 uWPos: vec(), uAttn: vec(), uHi: vec(), uGlow: vec(), uDark: { value: 1 } };
+function themeUniforms() {
+  const P = PALETTE, set = (u: { value: THREE.Vector3 }, c: number[]) => u.value.set(c[0], c[1], c[2]);
+  set(COLORS.uMid, P.mid); set(COLORS.uEmpty, P.empty); set(COLORS.uValNeg, P.value.neg); set(COLORS.uValPos, P.value.pos);
+  set(COLORS.uGradNeg, P.grad.neg); set(COLORS.uGradPos, P.grad.pos); set(COLORS.uWNeg, P.weight.neg); set(COLORS.uWPos, P.weight.pos);
+  set(COLORS.uAttn, P.attention); set(COLORS.uHi, P.hi); set(COLORS.uGlow, P.glow);
+  COLORS.uDark.value = P.dark ? 1 : 0;
+}
+themeUniforms();
 
 const EMPTY = new THREE.DataTexture(new Float32Array(1), 1, 1, THREE.RedFormat, THREE.FloatType);
 EMPTY.needsUpdate = true;
@@ -165,7 +179,8 @@ export class NetworkView {
   constructor(readonly el: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.setClearColor(0x0c0e13);
+    this.renderer.setClearColor(hex(PALETTE.bg));
+    onTheme(() => this.retheme());
     el.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.5, 200000);
     this.camera.position.set(0, 0, 400);
@@ -318,7 +333,7 @@ export class NetworkView {
           uVScale: { value: kind === 'head' ? 1 : t.absmax || 1 }, uGScale: { value: g?.absmax || 1 },
           uReveal: { value: 0 }, uGReveal: { value: 0 }, uActive: { value: 0 },
           uKind: { value: kind === 'weight' ? 1 : kind === 'head' ? 2 : 0 }, uHasGrad: { value: g ? 1 : 0 }, uHiRow: { value: -1 },
-          uCellPx: CELL_PX,
+          uCellPx: CELL_PX, ...COLORS,
         },
       });
       const mesh = new THREE.Mesh(BOX, mat);
@@ -341,16 +356,16 @@ export class NetworkView {
       if (a) for (let h = 0; h < a.heads; h++) block('head', i, h, this.headThumb(trace, i, h), null);
       const shape = trace.shapes[i];
       this.opText[i] = `${opLabel(op)}  [${shape.join('×')}]`;
-      this.opLabels.push(label(this.opText[i], OP_FONT, '#aab2c2', false, 90));
+      this.opLabels.push(label(this.opText[i], OP_FONT, css('muted'), false, 90));
     });
     for (const m of walk(this.root)) {
       if (m.depth === 0) continue;
-      const color = MOD_COLOR[m.type];
+      const color = modColor(m.type);
       const group = new THREE.Group();
       const fill = new THREE.Mesh(PLANE, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.07 + 0.02 * Math.min(m.depth, 3), depthWrite: false }));
       fill.userData.frame = null;
       const border = new THREE.LineSegments(SQUARE, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 }));
-      const barMat = new THREE.MeshBasicMaterial({ color: '#f99e29' });
+      const barMat = new THREE.MeshBasicMaterial({ color: hex(PALETTE.value.pos) });
       const bar = new THREE.Mesh(PLANE, barMat);
       group.add(fill, border, bar);
       this.world.add(group);
@@ -500,7 +515,7 @@ export class NetworkView {
     if (!this.links) return;
     const { fwd, bwd, active, dir } = this.state;
     const { colors, spans, line } = this.links;
-    const base = [0.14, 0.15, 0.19];
+    const base = mix(PALETTE.bg, PALETTE.edge, PALETTE.dark ? 0.3 : 0.6);
     const hot = dir === 'fwd' ? PALETTE.value.pos : PALETTE.grad.neg;
     for (const s of spans) {
       const on = dir === 'fwd' ? s.to === active : s.from === active || s.to === active;
@@ -530,12 +545,27 @@ export class NetworkView {
       for (let i = f.mod.first; i <= f.mod.last; i++) { sf += fwd[i] ?? 0; sb += bwd[i] ?? 0; }
       const back = sb > 0;
       const frac = (back ? sb : sf) / n;
-      f.barMat.color.set(back ? '#a855f7' : '#f99e29');
+      f.barMat.color.set(hex(back ? PALETTE.grad.neg : PALETTE.value.pos));
       const w = Math.max((fr.rect.w - 3) * frac, 0.001);
       this.moveTo(f.bar, fr.rect.x + 1.5 + w / 2, -(fr.rect.y + fr.rect.h - 2), -0.9, w, 1, 1, true);
       (f.fill.material as THREE.MeshBasicMaterial).opacity = active >= f.mod.first && active <= f.mod.last ? 0.4 : 0.22;
     }
     this.colorLinks();
+  }
+
+  /** Repaint in the current theme: background, cell colours, labels, frames, links. */
+  private retheme() {
+    themeUniforms();
+    this.renderer.setClearColor(hex(PALETTE.bg));
+    for (const t of this.opLabels) { t.color = css('muted'); t.sync(); }
+    for (const f of this.frames.values()) {
+      const c = modColor(f.mod.type);
+      (f.fill.material as THREE.MeshBasicMaterial).color.set(c);
+      (f.border.material as THREE.LineBasicMaterial).color.set(c);
+      f.title.color = c;
+      f.title.sync();
+    }
+    this.setProgress(this.state.fwd, this.state.bwd, this.state.active, this.state.dir);
   }
 
   highlightRow(op: number, row: number) {

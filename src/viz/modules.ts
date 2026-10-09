@@ -2,22 +2,33 @@
 // diagram and the narration are organised by. Each model names its modules;
 // colours are by kind of module, shared across models.
 import type { OpInfo } from '../worker/protocol';
+import { mode } from './theme';
 
 /** Kinds of module, shared by all models so colours mean the same thing everywhere. */
 export type ModType = string;
 
+/** By kind of module, from the Metatensor and metatomic logos: cyan and blue for geometry and descriptors,
+ *  indigo, violet, green and gold for learned representations, red and salmon for outputs. Tuned for the
+ *  dark theme; modColor() deepens them for the light one. */
 export const MOD_COLOR: Record<string, string> = {
-  root: '#94a3b8', other: '#94a3b8',
+  root: '#9aa3ad', other: '#9aa3ad',
   // geometry and descriptors
-  geometry: '#2dd4bf', adaptive: '#22d3ee', cutoff: '#38bdf8', descriptor: '#2dd4bf', radial: '#22d3ee',
-  angular: '#84cc16', density: '#22d3ee', spectrum: '#a3e635', rbf: '#22d3ee',
+  geometry: '#62c0d6', adaptive: '#62c0d6', cutoff: '#6c92e0', descriptor: '#62c0d6', radial: '#6c92e0',
+  angular: '#7cd18a', density: '#6c92e0', spectrum: '#7cd18a', rbf: '#6c92e0',
   // learned representations
-  embedding: '#f472b6', gnn: '#94a3b8', edge_tokens: '#fb923c', transformer: '#818cf8', tokens: '#c084fc',
-  attention: '#facc15', mlp: '#4ade80', node_update: '#a78bfa', message: '#60a5fa', interaction: '#60a5fa',
-  residual: '#4ade80', network: '#818cf8', kernel: '#facc15', regression: '#fb923c', product: '#f59e0b',
+  embedding: '#e0776c', gnn: '#9aa3ad', edge_tokens: '#e8955f', transformer: '#8c95e6', tokens: '#b08cec',
+  attention: '#f2c94c', mlp: '#7cd18a', node_update: '#b08cec', message: '#6c92e0', interaction: '#6c92e0',
+  residual: '#7cd18a', network: '#8c95e6', kernel: '#f2c94c', regression: '#e8955f', product: '#f2c94c',
   // outputs
-  readout: '#f87171', head: '#fca5a5', energy: '#fb7185', ncforce: '#a3e635', charges: '#f0abfc', electrostatics: '#e879f9',
+  readout: '#e0776c', head: '#eaa199', energy: '#d75142', ncforce: '#7cd18a', charges: '#cf8be0', electrostatics: '#b97ad8',
 };
+
+/** The colour of a kind of module in the current theme (deeper on light backgrounds, to stay legible). */
+export function modColor(type: string) {
+  const c = MOD_COLOR[type] ?? MOD_COLOR.other;
+  if (mode() === 'dark') return c;
+  return '#' + [1, 3, 5].map((k) => Math.round(parseInt(c.slice(k, k + 2), 16) * 0.68).toString(16).padStart(2, '0')).join('');
+}
 
 export interface ModDesc { type: ModType; title: string; short?: string }
 /** How a model names the module of one scope segment (null: a generic module named after the segment). */

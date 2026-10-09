@@ -10,9 +10,11 @@ import { LineChart } from './chart';
 import { AU_FS, CM, estimate } from './dmc';
 import type { DMCFrame, Flops, Frame, FromMD, MDForces, ToMD } from './md.worker';
 import { TrajectoryView } from './view';
+import { watchWorker } from '../app/boot';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const worker = new Worker(new URL('./md.worker.ts', import.meta.url), { type: 'module' });
+const workerUp = watchWorker(worker, () => ($('status').innerHTML = '<b>The engine did not start.</b> Reload the page; if that does not help, try another browser.'));
 const send = (m: ToMD, t: Transferable[] = []) => worker.postMessage(m, t);
 const status = (html: string) => ($('status').innerHTML = html);
 const params = new URLSearchParams(location.search);
@@ -180,8 +182,10 @@ const loading = {
   hide() { this.el.hidden = true; },
 };
 
+/** Counts model choices: a download that finishes after a newer choice was made is dropped. */
+let choice = 0;
 async function loadModel(e: ModelEntry) {
-  const name = e.label ?? e.name;
+  const name = e.label ?? e.name, mine = ++choice;
   elements = [];
   run++; // frames still on their way belong to the old model
   inflight = false;
@@ -191,9 +195,11 @@ async function loadModel(e: ModelEntry) {
     loading.show(`Loading ${name}`);
     const meta = e.meta ? await getJSON(resolve(base, e.meta)) : {};
     const w = e.weights ? await fetchBytes(resolve(base, e.weights), (f, mb) => loading.stage(`Downloading the weights: ${mb}`, f)) : null;
+    if (mine !== choice) return; // another model was picked meanwhile
     loading.stage(`Building ${name}…`, 1);
     send({ type: 'loadModel', id: e.name, kind: e.kind, meta, weights: w, label: name }, w ? [w] : []);
   } catch (err) {
+    if (mine !== choice) return;
     loading.hide();
     status(`<b>Could not load ${name}:</b> ${(err as Error).message}`);
   }
@@ -255,8 +261,7 @@ worker.onmessage = (e: MessageEvent<FromMD>) => {
   const m = e.data;
   if (m.type === 'ready') {
     backend = m.backend;
-    status(backend);
-    listModels();
+    workerUp();
   } else if (m.type === 'model') {
     loaded.add(m.id);
     loading.hide();
@@ -286,3 +291,5 @@ worker.onmessage = (e: MessageEvent<FromMD>) => {
 };
 
 send({ type: 'init', backend: params.get('backend') as any ?? 'auto' });
+// the menus need only the model index, not the engine: fill them now (the worker takes messages in order)
+listModels();

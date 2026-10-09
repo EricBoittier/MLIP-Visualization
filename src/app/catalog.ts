@@ -16,7 +16,19 @@ export const canSample = (e: ModelEntry) => SAMPLERS.includes(e.kind);
 // Hugging Face repository that scripts/publish_weights.py fills; ?models=<base url> picks another.
 export const HF_MODELS = 'https://huggingface.co/EricBoi/mlip-visualization-models/resolve/main/';
 
-export const getJSON = async (u: string) => { const r = await fetch(u); if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.json(); };
+/** JSON at `u`, retried a few times when the network or the server stumbles (not on 404). */
+export async function getJSON(u: string, tries = 3): Promise<any> {
+  for (let k = 0; ; k++) {
+    try {
+      const r = await fetch(u);
+      if (r.ok) return r.json();
+      if (k + 1 >= tries || !(r.status === 429 || r.status >= 500)) throw new Error(`${u}: HTTP ${r.status}`);
+    } catch (e) {
+      if (k + 1 >= tries || /HTTP 4/.test((e as Error).message)) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 500 * 2 ** k));
+  }
+}
 
 /** The first model index that answers, and the base URL its files are relative to. */
 export async function findModels(custom = new URLSearchParams(location.search).get('models')): Promise<{ entries: ModelEntry[]; base: string }> {
